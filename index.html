@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#17324d" />
+    <meta name="description" content="Suivi personnel et hors connexion des heures de travail." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Mes heures" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png" />
+    <link rel="stylesheet" href="styles.css" />
+    <title>Suivi des heures</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="brand">
+          <img src="assets/icon-192.png" alt="" width="40" height="40" />
+          <div><strong>Suivi des heures</strong><span>Personnel · sur cet appareil</span></div>
+        </div>
+        <div id="connection-state" class="connection-state"><span></span>Prêt</div>
+      </header>
+
+      <div id="app-error" class="fatal-error" role="alert" hidden></div>
+
+      <main>
+        <section class="view" data-view="today" aria-labelledby="today-heading">
+          <header class="view-heading">
+            <span>AUJOURD’HUI</span>
+            <h1 id="today-heading">Ma journée</h1>
+            <p id="today-date"></p>
+          </header>
+          <div id="today-content"></div>
+        </section>
+
+        <section class="view" data-view="calendar" aria-labelledby="calendar-heading" hidden>
+          <header class="view-heading compact-heading">
+            <span>CALENDRIER</span>
+            <h1 id="calendar-heading">Mes journées</h1>
+          </header>
+          <div class="calendar-toolbar">
+            <button class="icon-command" type="button" data-action="calendar-prev" aria-label="Mois précédent" title="Mois précédent"><i data-lucide="chevron-left"></i></button>
+            <button id="calendar-title" class="month-command" type="button" data-action="calendar-today" title="Revenir au mois courant"></button>
+            <button class="icon-command" type="button" data-action="calendar-next" aria-label="Mois suivant" title="Mois suivant"><i data-lucide="chevron-right"></i></button>
+          </div>
+          <section class="calendar-panel" aria-label="Calendrier mensuel">
+            <div id="weekday-row" class="weekday-row"></div>
+            <div id="calendar-grid" class="calendar-grid"></div>
+            <div class="calendar-legend" aria-label="Légende">
+              <span><i class="legend-dot balanced"></i>À l’heure</span>
+              <span><i class="legend-dot positive"></i>En plus</span>
+              <span><i class="legend-dot negative"></i>Manquant</span>
+            </div>
+          </section>
+          <div class="section-title"><h2>Détail du mois</h2><span>Toucher une ligne pour la modifier</span></div>
+          <div id="calendar-list" class="day-list"></div>
+        </section>
+
+        <section class="view" data-view="summary" aria-labelledby="summary-heading" hidden>
+          <header class="view-heading compact-heading">
+            <span>BILAN</span>
+            <h1 id="summary-heading">Où j’en suis</h1>
+            <p>Réalisé, prévu et écart, sans saisie supplémentaire.</p>
+          </header>
+          <div id="summary-content"></div>
+        </section>
+
+        <section class="view" data-view="settings" aria-labelledby="settings-heading" hidden>
+          <header class="view-heading compact-heading">
+            <span>RÉGLAGES</span>
+            <h1 id="settings-heading">Mon fonctionnement</h1>
+            <p>Les modifications s’appliquent aux prochaines journées.</p>
+          </header>
+
+          <form id="settings-form" class="settings-form">
+            <section class="settings-section">
+              <h2>Temps de travail</h2>
+              <label class="form-row"><span><strong>Durée habituelle</strong><small>Format HH:MM</small></span><input name="standardDay" inputmode="numeric" pattern="\d{1,4}:\d{2}" required /></label>
+              <label class="form-row"><span><strong>Objectif annuel</strong><small>Par défaut 1607:00</small></span><input name="annualTarget" inputmode="numeric" pattern="\d{1,4}:\d{2}" required /></label>
+            </section>
+
+            <section class="settings-section">
+              <h2>Pauses et affichage</h2>
+              <label class="form-row"><span><strong>Gestion des pauses</strong><small>Aucune déduction par défaut</small></span><select name="pauseMode"><option value="none">Aucune</option><option value="fixed">Durée fixe</option><option value="manual">Saisie par journée</option></select></label>
+              <label id="fixed-pause-row" class="form-row"><span><strong>Pause fixe</strong><small>Déduite du temps écoulé</small></span><input name="fixedPause" inputmode="numeric" pattern="\d{1,4}:\d{2}" /></label>
+              <label class="form-row"><span><strong>Premier jour de la semaine</strong></span><select name="weekStartsOn"><option value="1">Lundi</option><option value="0">Dimanche</option></select></label>
+              <label class="form-row"><span><strong>Format horaire</strong></span><select name="hourFormat"><option value="24">24 heures</option><option value="12">12 heures</option></select></label>
+            </section>
+            <button class="primary-command" type="submit"><i data-lucide="save"></i>Enregistrer les réglages</button>
+          </form>
+
+          <section class="settings-section action-section">
+            <h2>Exports et sauvegarde</h2>
+            <button id="export-excel" class="wide-command" type="button"><i data-lucide="file-spreadsheet"></i><span><strong>Exporter Excel</strong><small>Journal, mensuel, annuel et paramètres</small></span><i data-lucide="download"></i></button>
+            <button id="export-backup" class="wide-command" type="button"><i data-lucide="database-backup"></i><span><strong>Exporter une sauvegarde</strong><small>Fichier JSON complet</small></span><i data-lucide="download"></i></button>
+            <button id="import-backup" class="wide-command" type="button"><i data-lucide="archive-restore"></i><span><strong>Importer une sauvegarde</strong><small>Depuis un autre appareil</small></span><i data-lucide="upload"></i></button>
+            <input id="backup-file" type="file" accept="application/json,.json" hidden />
+          </section>
+
+          <section class="settings-section action-section">
+            <h2>Application</h2>
+            <button id="install-app" class="wide-command" type="button"><i data-lucide="smartphone"></i><span><strong>Installer l’application</strong><small>Ajout à l’écran d’accueil</small></span><i data-lucide="chevron-right"></i></button>
+            <button id="reset-data" class="wide-command danger-command" type="button"><i data-lucide="trash-2"></i><span><strong>Remettre à zéro</strong><small>Deux confirmations obligatoires</small></span><i data-lucide="chevron-right"></i></button>
+          </section>
+          <p id="app-version" class="version"></p>
+        </section>
+      </main>
+
+      <nav class="bottom-nav" aria-label="Navigation principale">
+        <button class="nav-button active" type="button" data-view-target="today" aria-current="page"><i data-lucide="clock-3"></i><span>Aujourd’hui</span></button>
+        <button class="nav-button" type="button" data-view-target="calendar"><i data-lucide="calendar-days"></i><span>Calendrier</span></button>
+        <button class="nav-button" type="button" data-view-target="summary"><i data-lucide="chart-no-axes-column-increasing"></i><span>Bilan</span></button>
+        <button class="nav-button" type="button" data-view-target="settings"><i data-lucide="settings-2"></i><span>Réglages</span></button>
+      </nav>
+    </div>
+
+    <dialog id="day-dialog" class="dialog day-dialog">
+      <form id="day-form" method="dialog">
+        <header class="dialog-header">
+          <div><span id="day-dialog-title">Modifier la journée</span><strong id="day-dialog-date"></strong></div>
+          <button id="close-day-dialog" class="icon-command" type="button" aria-label="Fermer" title="Fermer"><i data-lucide="x"></i></button>
+        </header>
+        <div class="dialog-body">
+          <input name="date" type="date" hidden />
+          <label><span>Type de journée</span><select id="day-type" name="type"></select></label>
+          <div class="two-columns">
+            <label><span>Arrivée</span><input name="arrival" type="datetime-local" /></label>
+            <label><span>Départ</span><input name="departure" type="datetime-local" /></label>
+          </div>
+          <div class="two-columns">
+            <label><span>Pause</span><input name="pause" inputmode="numeric" pattern="\d{1,4}:\d{2}" placeholder="00:00" required /></label>
+            <label><span>Temps prévu</span><input name="planned" inputmode="numeric" pattern="\d{1,4}:\d{2}" placeholder="09:00" required /></label>
+          </div>
+          <label><span>Commentaire</span><textarea name="comment" rows="3" maxlength="500" placeholder="Facultatif"></textarea></label>
+        </div>
+        <footer class="dialog-footer">
+          <button id="delete-day" class="delete-command" type="button"><i data-lucide="trash-2"></i>Supprimer</button>
+          <button class="primary-command" type="submit"><i data-lucide="check"></i>Enregistrer</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="import-dialog" class="dialog confirm-dialog">
+      <div class="dialog-header"><div><span>Importer la sauvegarde</span><strong>Choisir le mode de restauration</strong></div></div>
+      <div class="dialog-body"><p id="import-summary"></p><p><strong>Fusionner</strong> ajoute seulement les dates absentes. <strong>Remplacer</strong> efface les données actuelles après confirmation.</p></div>
+      <footer class="dialog-footer stacked-actions">
+        <button id="import-merge" class="primary-command" type="button"><i data-lucide="combine"></i>Fusionner sans écraser</button>
+        <button id="import-replace" class="secondary-command danger-text" type="button"><i data-lucide="replace"></i>Remplacer toutes les données</button>
+        <button id="import-cancel" class="secondary-command" type="button">Annuler</button>
+      </footer>
+    </dialog>
+
+    <dialog id="install-dialog" class="dialog confirm-dialog">
+      <div class="dialog-header"><div><span>Installer sur iPhone</span><strong>Depuis Safari</strong></div><button id="close-install-dialog" class="icon-command" type="button" aria-label="Fermer"><i data-lucide="x"></i></button></div>
+      <div class="dialog-body install-steps"><p><b>1</b> Ouvre cette page dans Safari.</p><p><b>2</b> Touche <strong>Partager</strong>.</p><p><b>3</b> Choisis <strong>Sur l’écran d’accueil</strong>.</p><p><b>4</b> Touche <strong>Ajouter</strong>.</p></div>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <script src="vendor/jszip.min.js"></script>
+    <script src="vendor/lucide.min.js"></script>
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>
