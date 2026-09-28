@@ -11,7 +11,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png" />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=1.1.0" />
     <title>Suivi des heures</title>
   </head>
   <body>
@@ -40,6 +40,7 @@
           <header class="view-heading compact-heading">
             <span>CALENDRIER</span>
             <h1 id="calendar-heading">Mes journées</h1>
+            <p id="calendar-source"></p>
           </header>
           <div class="calendar-toolbar">
             <button class="icon-command" type="button" data-action="calendar-prev" aria-label="Mois précédent" title="Mois précédent"><i data-lucide="chevron-left"></i></button>
@@ -50,6 +51,7 @@
             <div id="weekday-row" class="weekday-row"></div>
             <div id="calendar-grid" class="calendar-grid"></div>
             <div class="calendar-legend" aria-label="Légende">
+              <span><i class="legend-dot planned"></i>Prévision</span>
               <span><i class="legend-dot balanced"></i>À l’heure</span>
               <span><i class="legend-dot positive"></i>En plus</span>
               <span><i class="legend-dot negative"></i>Manquant</span>
@@ -63,7 +65,7 @@
           <header class="view-heading compact-heading">
             <span>BILAN</span>
             <h1 id="summary-heading">Où j’en suis</h1>
-            <p>Réalisé, prévu et écart, sans saisie supplémentaire.</p>
+            <p>Temps réel, temps comptabilisé, prévision et solde.</p>
           </header>
           <div id="summary-content"></div>
         </section>
@@ -80,6 +82,20 @@
               <h2>Temps de travail</h2>
               <label class="form-row"><span><strong>Durée habituelle</strong><small>Format HH:MM</small></span><input name="standardDay" inputmode="numeric" pattern="\d{1,4}:\d{2}" required /></label>
               <label class="form-row"><span><strong>Objectif annuel</strong><small>Par défaut 1607:00</small></span><input name="annualTarget" inputmode="numeric" pattern="\d{1,4}:\d{2}" required /></label>
+            </section>
+
+            <section class="settings-section">
+              <h2>Calendrier prévisionnel</h2>
+              <div class="form-row status-row"><span><strong>Planning chargé</strong><small>Jours travaillés, repos, congés et récupérations</small></span><b id="forecast-settings-status"></b></div>
+            </section>
+
+            <section class="settings-section">
+              <h2>Poids des types de journée</h2>
+              <p class="settings-note">Le coefficient multiplie le temps réel. Le forfait est ensuite ajouté ou retiré.</p>
+              <div class="type-rule-head"><span>Type</span><span>Coefficient</span><span>Forfait</span></div>
+              <div id="type-rules"></div>
+              <label class="form-row"><span><strong>Dimanche travaillé</strong><small>Coefficient automatique lié à la date</small></span><input name="sundayMultiplier" type="number" min="0" max="5" step="0.25" required /></label>
+              <label class="form-row"><span><strong>Jour férié travaillé</strong><small>Coefficient automatique lié au calendrier</small></span><input name="holidayMultiplier" type="number" min="0" max="5" step="0.25" required /></label>
             </section>
 
             <section class="settings-section">
@@ -134,6 +150,7 @@
             <label><span>Pause</span><input name="pause" inputmode="numeric" pattern="\d{1,4}:\d{2}" placeholder="00:00" required /></label>
             <label><span>Temps prévu</span><input name="planned" inputmode="numeric" pattern="\d{1,4}:\d{2}" placeholder="09:00" required /></label>
           </div>
+          <section id="day-rule-preview" class="day-rule-preview" aria-live="polite"></section>
           <label><span>Commentaire</span><textarea name="comment" rows="3" maxlength="500" placeholder="Facultatif"></textarea></label>
         </div>
         <footer class="dialog-footer">
@@ -162,6 +179,6 @@
 
     <script src="vendor/jszip.min.js"></script>
     <script src="vendor/lucide.min.js"></script>
-    <script type="module" src="js/app.js"></script>
+    <script type="module" src="js/app.js?v=1.1.0"></script>
   </body>
 </html>

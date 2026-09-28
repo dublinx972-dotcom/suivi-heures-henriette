@@ -1,4 +1,4 @@
-import { computeEntry, dateFromKey, formatDuration, TYPE_LABELS } from "./time.js";
+import { computeEntry, dateFromKey, formatDuration, typeRule, TYPE_LABELS } from "./time.js?v=1.1.0";
 
 const MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
@@ -111,13 +111,15 @@ function number(value, style = 0) {
   return { kind: "number", value, style };
 }
 
-function journalRows(entries) {
-  const headers = ["Date", "Jour", "Type", "Heure arrivée", "Heure départ", "Pause", "Temps travaillé", "Temps prévu", "Écart", "Commentaire"];
+function journalRows(entries, settings) {
+  const headers = ["Date", "Jour", "Type", "Heure arrivée", "Heure départ", "Pause", "Temps réel", "Bonification", "Temps comptabilisé", "Temps prévu", "Écart", "Règle", "Commentaire"];
   const formatter = new Intl.DateTimeFormat("fr-FR", { weekday: "long" });
   return [
     headers,
     ...entries.map((entry) => {
-      const calculated = computeEntry(entry, entry.departure ? new Date(entry.departure) : new Date());
+      const calculated = computeEntry(entry, entry.departure ? new Date(entry.departure) : new Date(), settings);
+      const rule = typeRule(settings, entry.type);
+      const ruleText = `x${rule.coefficient}${rule.fixedMinutes ? ` ${formatDuration(rule.fixedMinutes, { signed: true })}` : ""}${calculated.calendarMultiplier !== 1 ? ` · date x${calculated.calendarMultiplier}` : ""}`;
       return [
         number(excelDate1904(entry.date), 2),
         formatter.format(dateFromKey(entry.date)),
@@ -126,30 +128,35 @@ function journalRows(entries) {
         entry.departure ? number(excelTime(entry.departure), 3) : null,
         number(Number(entry.pauseMinutes || 0) / 1440, 4),
         number(calculated.workedMinutes / 1440, 4),
+        number(calculated.bonusMinutes / 1440, 5),
+        number(calculated.countedMinutes / 1440, 5),
         number(calculated.plannedMinutes / 1440, 4),
         number(calculated.gapMinutes / 1440, 5),
+        ruleText,
         entry.comment || "",
       ];
     }),
   ];
 }
 
-function monthlyRows(entries, year) {
+function monthlyRows(entries, settings, year) {
   const monthNames = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
-  const totals = Array.from({ length: 12 }, () => ({ worked: 0, planned: 0 }));
+  const totals = Array.from({ length: 12 }, () => ({ worked: 0, counted: 0, planned: 0 }));
   for (const entry of entries) {
-    const values = computeEntry(entry, entry.departure ? new Date(entry.departure) : new Date());
+    const values = computeEntry(entry, entry.departure ? new Date(entry.departure) : new Date(), settings);
     const month = Number(entry.date.slice(5, 7)) - 1;
     totals[month].worked += values.workedMinutes;
+    totals[month].counted += values.countedMinutes;
     totals[month].planned += values.plannedMinutes;
   }
   return [
-    ["Mois", "Heures réalisées", "Heures prévues", "Différence"],
+    ["Mois", "Temps réel", "Temps comptabilisé", "Temps prévu", "Écart comptabilisé / prévu"],
     ...totals.map((total, month) => [
       `${monthNames[month]} ${year}`,
       number(total.worked / 1440, 4),
+      number(total.counted / 1440, 5),
       number(total.planned / 1440, 4),
-      number((total.worked - total.planned) / 1440, 5),
+      number((total.counted - total.planned) / 1440, 5),
     ]),
   ];
 }
@@ -157,12 +164,13 @@ function monthlyRows(entries, year) {
 function annualRows(entries, settings, year) {
   const totals = entries.reduce(
     (result, entry) => {
-      const values = computeEntry(entry, entry.departure ? new Date(entry.departure) : new Date());
+      const values = computeEntry(entry, entry.departure ? new Date(entry.departure) : new Date(), settings);
       result.worked += values.workedMinutes;
+      result.counted += values.countedMinutes;
       result.planned += values.plannedMinutes;
       return result;
     },
-    { worked: 0, planned: 0 },
+    { worked: 0, counted: 0, planned: 0 },
   );
   const target = Number(settings.annualTargetMinutes || 0);
   return [
@@ -170,16 +178,17 @@ function annualRows(entries, settings, year) {
     ["Année", year],
     ["Objectif annuel", number(target / 1440, 4)],
     ["Heures réalisées", number(totals.worked / 1440, 4)],
+    ["Heures comptabilisées", number(totals.counted / 1440, 5)],
     ["Heures prévues", number(totals.planned / 1440, 4)],
-    ["Écart réalisé / prévu", number((totals.worked - totals.planned) / 1440, 5)],
-    ["Reste à atteindre", number(Math.max(0, target - totals.worked) / 1440, 4)],
-    ["Pourcentage réalisé", number(target ? totals.worked / target : 0, 6)],
+    ["Écart comptabilisé / prévu", number((totals.counted - totals.planned) / 1440, 5)],
+    ["Reste à atteindre", number(Math.max(0, target - totals.counted) / 1440, 4)],
+    ["Pourcentage comptabilisé", number(target ? totals.counted / target : 0, 6)],
   ];
 }
 
 function settingsRows(settings) {
   const pauseLabels = { none: "Aucune", fixed: "Durée fixe", manual: "Saisie manuelle" };
-  return [
+  const rows = [
     ["Paramètre", "Valeur"],
     ["Durée habituelle d’une journée", number(Number(settings.standardDayMinutes || 0) / 1440, 4)],
     ["Objectif annuel", number(Number(settings.annualTargetMinutes || 0) / 1440, 4)],
@@ -187,16 +196,23 @@ function settingsRows(settings) {
     ["Pause fixe", number(Number(settings.fixedPauseMinutes || 0) / 1440, 4)],
     ["Premier jour de la semaine", Number(settings.weekStartsOn) === 0 ? "Dimanche" : "Lundi"],
     ["Format horaire", settings.hour12 ? "12 heures" : "24 heures"],
+    ["Coefficient dimanche", Number(settings.sundayMultiplier ?? 2)],
+    ["Coefficient jour férié", Number(settings.holidayMultiplier ?? 2)],
     ["Export généré le", new Intl.DateTimeFormat("fr-FR", { dateStyle: "long", timeStyle: "short" }).format(new Date())],
   ];
+  for (const [type, label] of Object.entries(TYPE_LABELS)) {
+    const rule = typeRule(settings, type);
+    rows.push([`Type ${label}`, `Coefficient x${rule.coefficient} · forfait ${formatDuration(rule.fixedMinutes, { signed: true })}`]);
+  }
+  return rows;
 }
 
 export async function buildExcelBlob(allEntries, settings, year = new Date().getFullYear()) {
   if (!globalThis.JSZip) throw new Error("Le composant Excel n’est pas disponible.");
   const entries = allEntries.filter((entry) => Number(entry.date.slice(0, 4)) === year);
   const sheets = [
-    { name: "JOURNAL", rows: journalRows(entries), widths: [13, 14, 22, 15, 15, 12, 18, 16, 15, 42] },
-    { name: "MENSUEL", rows: monthlyRows(entries, year), widths: [20, 20, 18, 18] },
+    { name: "JOURNAL", rows: journalRows(entries, settings), widths: [13, 14, 22, 15, 15, 12, 16, 16, 20, 16, 16, 24, 42] },
+    { name: "MENSUEL", rows: monthlyRows(entries, settings, year), widths: [20, 18, 22, 18, 28] },
     { name: "ANNUEL", rows: annualRows(entries, settings, year), widths: [30, 22] },
     { name: "PARAMÈTRES", rows: settingsRows(settings), widths: [38, 28] },
   ];
@@ -255,6 +271,6 @@ export function downloadBlob(blob, filename) {
 
 export function workbookSummary(entries, settings, year) {
   const filtered = entries.filter((entry) => Number(entry.date.slice(0, 4)) === year);
-  const total = filtered.reduce((sum, entry) => sum + computeEntry(entry).workedMinutes, 0);
-  return `${filtered.length} journées, ${formatDuration(total)} réalisées, objectif ${formatDuration(settings.annualTargetMinutes)}.`;
+  const total = filtered.reduce((sum, entry) => sum + computeEntry(entry, new Date(), settings).countedMinutes, 0);
+  return `${filtered.length} journées, ${formatDuration(total)} comptabilisées, objectif ${formatDuration(settings.annualTargetMinutes)}.`;
 }

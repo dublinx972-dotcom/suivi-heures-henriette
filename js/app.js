@@ -15,11 +15,14 @@ import {
   localDateKey,
   monthKey,
   parseDuration,
+  parseSignedDuration,
+  signedDurationInput,
   startOfWeek,
   summarize,
   theoreticalDeparture,
   toLocalDateTimeInput,
-} from "./time.js";
+  typeRule,
+} from "./time.js?v=1.1.0";
 import {
   DEFAULT_SETTINGS,
   clearAllData,
@@ -28,12 +31,13 @@ import {
   loadSettings,
   mergeData,
   putEntry,
+  putEntries,
   replaceData,
   saveSettings,
-} from "./db.js";
-import { buildExcelBlob, downloadBlob, workbookSummary } from "./xlsx.js";
+} from "./db.js?v=1.1.0";
+import { buildExcelBlob, downloadBlob, workbookSummary } from "./xlsx.js?v=1.1.0";
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 const state = {
   entries: [],
   settings: { ...DEFAULT_SETTINGS },
@@ -42,6 +46,7 @@ const state = {
   editingDate: null,
   pendingImport: null,
   deferredInstall: null,
+  forecast: null,
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -82,8 +87,56 @@ function entryForDate(date) {
   return state.entries.find((entry) => entry.date === date) || null;
 }
 
-async function reload() {
+async function loadState() {
   [state.entries, state.settings] = await Promise.all([listEntries(), loadSettings()]);
+}
+
+async function ensureBundledForecast() {
+  try {
+    if (!state.forecast) {
+      const response = await fetch("./assets/calendrier-previsionnel-2026.json");
+      if (!response.ok) throw new Error("Calendrier prévisionnel indisponible");
+      state.forecast = await response.json();
+    }
+    if (state.settings.forecastVersion === state.forecast.version) return false;
+    const existing = new Map(state.entries.map((entry) => [entry.date, entry]));
+    const now = new Date().toISOString();
+    const records = state.forecast.days
+      .filter((day) => {
+        const current = existing.get(day.date);
+        return !current || String(current.source || "").startsWith("forecast:");
+      })
+      .map((day) => {
+        const current = existing.get(day.date);
+        return {
+          date: day.date,
+          type: day.type,
+          arrival: null,
+          departure: null,
+          pauseMinutes: 0,
+          plannedMinutes: Number(day.plannedMinutes || 0),
+          comment: day.label || "",
+          calendarLabel: day.label || "",
+          isHoliday: Boolean(day.isHoliday),
+          forecastOnly: true,
+          source: `forecast:${state.forecast.version}`,
+          createdAt: current?.createdAt || now,
+          updatedAt: now,
+        };
+      });
+    await putEntries(records);
+    state.settings = { ...state.settings, forecastVersion: state.forecast.version };
+    await saveSettings(state.settings);
+    return true;
+  } catch (error) {
+    console.warn("Calendrier prévisionnel non chargé", error);
+    return false;
+  }
+}
+
+async function reload() {
+  await loadState();
+  if (await ensureBundledForecast()) await loadState();
   renderAll();
 }
 
@@ -107,6 +160,22 @@ function metric(label, value, tone = "") {
   return `<div class="metric ${tone}"><span>${label}</span><strong>${value}</strong></div>`;
 }
 
+function formatCoefficient(value) {
+  return Number(value).toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+function ruleSummary(entry) {
+  const rule = typeRule(state.settings, entry.type);
+  const base = rule.coefficient < 0 ? "journée habituelle" : "temps réel";
+  const parts = [`${base} × ${formatCoefficient(rule.coefficient)}`];
+  if (rule.fixedMinutes) parts.push(`${formatDuration(rule.fixedMinutes, { signed: true })} forfaitaire`);
+  const values = computeEntry(entry, entry.departure ? new Date(entry.departure) : new Date(), state.settings);
+  if (values.calendarMultiplier !== 1) {
+    parts.push(`${entry.isHoliday ? "jour férié" : "dimanche"} × ${formatCoefficient(values.calendarMultiplier)}`);
+  }
+  return parts.join(" · ");
+}
+
 function renderToday() {
   const now = new Date();
   const todayKey = localDateKey(now);
@@ -116,7 +185,7 @@ function renderToday() {
   $("#today-date").textContent = formatLongDate(now);
 
   if (active) {
-    const values = computeEntry(active, now);
+    const values = computeEntry(active, now, state.settings);
     const expected = theoreticalDeparture(active);
     const crossesDay = active.date !== todayKey;
     host.innerHTML = `
@@ -131,13 +200,13 @@ function renderToday() {
       </section>
       <section class="today-metrics" aria-label="Détails de la journée">
         ${metric("Arrivée", formatClock(active.arrival, state.settings.hour12))}
+        ${metric("Comptabilisé", formatDuration(values.countedMinutes))}
         ${metric("Prévu", formatDuration(values.plannedMinutes))}
         ${metric("Départ théorique", expected ? formatClock(expected, state.settings.hour12) : "—")}
-        ${metric("Pause", formatDuration(active.pauseMinutes || 0))}
       </section>
       <button class="text-command" type="button" data-action="open-day" data-date="${active.date}"><i data-lucide="pencil"></i>Corriger la journée</button>`;
   } else if (today?.arrival && today?.departure) {
-    const values = computeEntry(today, new Date(today.departure));
+    const values = computeEntry(today, new Date(today.departure), state.settings);
     host.innerHTML = `
       <section class="today-hero completed-state">
         <p class="eyebrow">JOURNÉE TERMINÉE</p>
@@ -148,9 +217,10 @@ function renderToday() {
       <section class="today-metrics" aria-label="Résumé de la journée">
         ${metric("Arrivée", formatClock(today.arrival, state.settings.hour12))}
         ${metric("Départ", formatClock(today.departure, state.settings.hour12))}
-        ${metric("Prévu", formatDuration(values.plannedMinutes))}
+        ${metric("Comptabilisé", formatDuration(values.countedMinutes))}
         ${metric("Écart", formatDuration(values.gapMinutes, { signed: true }), gapClass(values.gapMinutes))}
       </section>
+      <section class="plan-line"><div><span>Temps prévu</span><strong>${formatDuration(values.plannedMinutes)}</strong></div><div class="rule-inline">${escapeHtml(ruleSummary(today))}</div></section>
       <button class="text-command" type="button" data-action="open-day" data-date="${todayKey}"><i data-lucide="pencil"></i>Corriger la journée</button>`;
   } else {
     const planned = today?.plannedMinutes || 0;
@@ -163,7 +233,7 @@ function renderToday() {
         <p class="action-hint">Un appui enregistre l’heure actuelle</p>
       </section>
       <section class="plan-line">
-        <div><span>Temps prévu aujourd’hui</span><strong>${planned ? formatDuration(planned) : "Non défini"}</strong></div>
+        <div><span>${today?.calendarLabel ? escapeHtml(today.calendarLabel) : "Temps prévu aujourd’hui"}</span><strong>${planned ? formatDuration(planned) : "Non travaillé"}</strong></div>
         <button class="icon-command" type="button" data-action="open-day" data-date="${todayKey}" aria-label="Modifier le temps prévu" title="Modifier le temps prévu"><i data-lucide="pencil"></i></button>
       </section>`;
   }
@@ -179,6 +249,9 @@ function renderCalendar() {
   const year = state.calendarDate.getFullYear();
   const month = state.calendarDate.getMonth();
   $("#calendar-title").textContent = new Intl.DateTimeFormat("fr-FR", { month: "long", year: "numeric" }).format(state.calendarDate);
+  $("#calendar-source").textContent = state.forecast
+    ? `${state.forecast.name} chargé · ${state.forecast.days.length} jours prévus`
+    : "Calendrier prévisionnel non chargé";
   $("#weekday-row").innerHTML = weekdayLabels().map((label) => `<span>${label}</span>`).join("");
 
   const first = new Date(year, month, 1, 12);
@@ -190,29 +263,39 @@ function renderCalendar() {
     const date = new Date(year, month, day, 12);
     const key = localDateKey(date);
     const entry = entryForDate(key);
-    const values = entry ? computeEntry(entry) : null;
+    const values = entry ? computeEntry(entry, new Date(), state.settings) : null;
     const today = key === localDateKey();
     let status = "empty";
     if (entry?.arrival && !entry.departure) status = "active";
-    else if (entry && (entry.arrival || entry.plannedMinutes || entry.type !== "work")) status = values ? gapClass(values.gapMinutes) : "planned";
+    else if (entry?.arrival) status = values ? gapClass(values.gapMinutes) : "planned";
+    else if (entry && (entry.type !== "rest" || entry.isHoliday || entry.plannedMinutes)) status = "planned";
     cells.push(`<button type="button" class="calendar-day ${status} ${today ? "today" : ""}" data-action="open-day" data-date="${key}" aria-label="${day} ${$("#calendar-title").textContent}"><span>${day}</span><i></i></button>`);
   }
   $("#calendar-grid").innerHTML = cells.join("");
 
   const prefix = `${year}-${String(month + 1).padStart(2, "0")}`;
-  const monthly = state.entries.filter((entry) => entry.date.startsWith(prefix)).sort((a, b) => b.date.localeCompare(a.date));
+  const monthly = state.entries
+    .filter((entry) => entry.date.startsWith(prefix))
+    .filter((entry) => entry.arrival || entry.plannedMinutes || entry.type !== "rest" || entry.isHoliday || !String(entry.source || "").startsWith("forecast:"))
+    .sort((a, b) => b.date.localeCompare(a.date));
   const list = $("#calendar-list");
   if (!monthly.length) {
     list.innerHTML = `<div class="empty-state"><i data-lucide="calendar-days"></i><strong>Aucune journée renseignée</strong><span>Touche une date du calendrier pour définir son temps prévu.</span></div>`;
   } else {
     list.innerHTML = monthly.map((entry) => {
-      const values = computeEntry(entry);
-      const times = entry.arrival ? `${formatClock(entry.arrival, state.settings.hour12)} → ${formatClock(entry.departure, state.settings.hour12)}` : TYPE_LABELS[entry.type] || "Journée planifiée";
+      const values = computeEntry(entry, new Date(), state.settings);
+      const times = entry.arrival
+        ? `${formatClock(entry.arrival, state.settings.hour12)} → ${formatClock(entry.departure, state.settings.hour12)}`
+        : entry.calendarLabel || TYPE_LABELS[entry.type] || "Journée planifiée";
+      const total = entry.arrival ? formatDuration(values.workedMinutes) : `Prévu ${formatDuration(values.plannedMinutes)}`;
+      const balance = entry.arrival || values.countedMinutes
+        ? formatDuration(values.gapMinutes, { signed: true })
+        : TYPE_LABELS[entry.type] || "Prévu";
       return `<button class="day-row" type="button" data-action="open-day" data-date="${entry.date}">
         <span class="day-date">${formatShortDate(entry.date)}</span>
-        <span class="day-times">${times}</span>
-        <span class="day-total">${formatDuration(values.workedMinutes)}</span>
-        <span class="day-gap ${gapClass(values.gapMinutes)}">${formatDuration(values.gapMinutes, { signed: true })}</span>
+        <span class="day-times">${escapeHtml(times)}</span>
+        <span class="day-total">${total}</span>
+        <span class="day-gap ${entry.arrival || values.countedMinutes ? gapClass(values.gapMinutes) : ""}">${balance}</span>
         <i data-lucide="chevron-right"></i>
       </button>`;
     }).join("");
@@ -222,8 +305,8 @@ function renderCalendar() {
 
 function summaryBlock(title, summary, subtitle = "") {
   return `<article class="summary-block">
-    <header><div><span>${title}</span>${subtitle ? `<small>${subtitle}</small>` : ""}</div><strong class="${gapClass(summary.gapMinutes)}">${formatDuration(summary.gapMinutes, { signed: true })}</strong></header>
-    <div class="summary-values"><div><span>Réalisé</span><strong>${formatDuration(summary.workedMinutes)}</strong></div><div><span>Prévu</span><strong>${formatDuration(summary.plannedMinutes)}</strong></div></div>
+    <header><div><span>${title}</span>${subtitle ? `<small>${subtitle}</small>` : ""}</div><div class="pointed-balance"><small>Solde pointé</small><strong class="${gapClass(summary.gapMinutes)}">${formatDuration(summary.gapMinutes, { signed: true })}</strong></div></header>
+    <div class="summary-values"><div><span>Réel</span><strong>${formatDuration(summary.workedMinutes)}</strong></div><div><span>Compté</span><strong>${formatDuration(summary.countedMinutes)}</strong></div><div><span>Prévu</span><strong>${formatDuration(summary.plannedMinutes)}</strong></div></div>
   </article>`;
 }
 
@@ -231,18 +314,18 @@ function renderSummary() {
   const now = new Date();
   const today = entryForDate(localDateKey(now));
   const weekStart = startOfWeek(now, state.settings.weekStartsOn);
-  const weekEnd = endOfWeek(now, state.settings.weekStartsOn);
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 12);
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 12);
   const yearStart = new Date(now.getFullYear(), 0, 1, 12);
   const yearEnd = new Date(now.getFullYear(), 11, 31, 12);
-  const todaySummary = summarize(today ? [today] : [], now);
-  const weekSummary = summarize(entriesBetween(state.entries, weekStart, weekEnd), now);
-  const monthSummary = summarize(entriesBetween(state.entries, monthStart, monthEnd), now);
-  const yearSummary = summarize(entriesBetween(state.entries, yearStart, yearEnd), now);
+  const weekEnd = endOfWeek(now, state.settings.weekStartsOn);
+  const todaySummary = summarize(today ? [today] : [], now, state.settings);
+  const weekSummary = summarize(entriesBetween(state.entries, weekStart, now), now, state.settings);
+  const monthSummary = summarize(entriesBetween(state.entries, monthStart, now), now, state.settings);
+  const yearSummary = summarize(entriesBetween(state.entries, yearStart, now), now, state.settings);
+  const yearForecast = summarize(entriesBetween(state.entries, yearStart, yearEnd), now, state.settings);
   const target = Number(state.settings.annualTargetMinutes || 0);
-  const progress = target ? Math.min(100, Math.max(0, (yearSummary.workedMinutes / target) * 100)) : 0;
-  const remaining = Math.max(0, target - yearSummary.workedMinutes);
+  const progress = target ? Math.min(100, Math.max(0, (yearSummary.countedMinutes / target) * 100)) : 0;
+  const remaining = Math.max(0, target - yearSummary.countedMinutes);
 
   $("#summary-content").innerHTML = `
     <div class="summary-grid">
@@ -251,13 +334,15 @@ function renderSummary() {
       ${summaryBlock("Ce mois", monthSummary, new Intl.DateTimeFormat("fr-FR", { month: "long" }).format(now))}
     </div>
     <section class="annual-panel">
-      <header><div><span>ANNÉE ${now.getFullYear()}</span><strong>${formatDuration(yearSummary.workedMinutes)}</strong></div><b>${Math.round(progress)} %</b></header>
+      <header><div><span>COMPTABILISÉ EN ${now.getFullYear()}</span><strong>${formatDuration(yearSummary.countedMinutes)}</strong></div><b>${Math.round(progress)} %</b></header>
       <div class="progress-track" role="progressbar" aria-label="Progression annuelle" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(progress)}"><span style="width:${progress}%"></span></div>
       <div class="annual-values">
         <div><span>Objectif annuel</span><strong>${formatDuration(target)}</strong></div>
         <div><span>Reste à effectuer</span><strong>${formatDuration(remaining)}</strong></div>
+        <div><span>Réel à date</span><strong>${formatDuration(yearSummary.workedMinutes)}</strong></div>
         <div><span>Prévu à date</span><strong>${formatDuration(yearSummary.plannedMinutes)}</strong></div>
-        <div><span>Écart au prévu</span><strong class="${gapClass(yearSummary.gapMinutes)}">${formatDuration(yearSummary.gapMinutes, { signed: true })}</strong></div>
+        <div><span>Solde des jours pointés</span><strong class="${gapClass(yearSummary.gapMinutes)}">${formatDuration(yearSummary.gapMinutes, { signed: true })}</strong></div>
+        <div><span>Prévision annuelle</span><strong>${formatDuration(yearForecast.plannedMinutes)}</strong></div>
       </div>
     </section>`;
 }
@@ -270,6 +355,19 @@ function renderSettings() {
   form.elements.fixedPause.value = durationInput(state.settings.fixedPauseMinutes);
   form.elements.weekStartsOn.value = String(state.settings.weekStartsOn);
   form.elements.hourFormat.value = state.settings.hour12 ? "12" : "24";
+  form.elements.sundayMultiplier.value = String(state.settings.sundayMultiplier ?? 2);
+  form.elements.holidayMultiplier.value = String(state.settings.holidayMultiplier ?? 2);
+  $("#type-rules").innerHTML = DAY_TYPES.map(([type, label]) => {
+    const rule = typeRule(state.settings, type);
+    return `<div class="type-rule-row">
+      <span><strong>${label}</strong><small>Coefficient puis forfait</small></span>
+      <label><span>×</span><input name="coefficient-${type}" type="number" min="-5" max="5" step="0.25" value="${rule.coefficient}" aria-label="Coefficient ${label}" /></label>
+      <input name="fixed-${type}" inputmode="text" value="${signedDurationInput(rule.fixedMinutes)}" pattern="[+-]?\\d{1,4}:\\d{2}" aria-label="Forfait ${label}" />
+    </div>`;
+  }).join("");
+  $("#forecast-settings-status").textContent = state.forecast
+    ? `${state.forecast.year} · ${state.forecast.days.length} jours · ${formatDuration(state.forecast.days.reduce((sum, day) => sum + Number(day.plannedMinutes || 0), 0))} prévues`
+    : "Non chargé";
   $("#fixed-pause-row").hidden = state.settings.pauseMode !== "fixed";
   $("#app-version").textContent = `Version ${VERSION}`;
 }
@@ -310,6 +408,8 @@ async function clockIn() {
     pauseMinutes: current?.pauseMinutes ?? (state.settings.pauseMode === "fixed" ? state.settings.fixedPauseMinutes : 0),
     plannedMinutes: current ? Number(current.plannedMinutes || 0) : Number(state.settings.standardDayMinutes),
     comment: current?.comment || "",
+    calendarLabel: current?.calendarLabel || "",
+    isHoliday: Boolean(current?.isHoliday),
     createdAt: current?.createdAt || now,
     updatedAt: now,
   };
@@ -348,7 +448,29 @@ function openDayEditor(date) {
   $("#delete-day").hidden = !current;
   $("#day-dialog-title").textContent = current ? "Modifier la journée" : "Renseigner la journée";
   $("#day-dialog-date").textContent = new Intl.DateTimeFormat("fr-FR", { dateStyle: "full" }).format(dateFromKey(date));
+  renderDayRulePreview();
   $("#day-dialog").showModal();
+}
+
+function renderDayRulePreview() {
+  if (!state.editingDate) return;
+  const form = $("#day-form");
+  const current = entryForDate(state.editingDate);
+  const pauseMinutes = parseDuration(form.elements.pause.value) ?? 0;
+  const plannedMinutes = parseDuration(form.elements.planned.value) ?? 0;
+  const entry = {
+    date: state.editingDate,
+    type: form.elements.type.value,
+    arrival: fromLocalDateTimeInput(form.elements.arrival.value),
+    departure: fromLocalDateTimeInput(form.elements.departure.value),
+    pauseMinutes,
+    plannedMinutes,
+    isHoliday: Boolean(current?.isHoliday),
+  };
+  const values = computeEntry(entry, new Date(), state.settings);
+  $("#day-rule-preview").innerHTML = `
+    <div><span>RÈGLE APPLIQUÉE</span><strong>${escapeHtml(ruleSummary(entry))}</strong></div>
+    <div class="rule-results"><span>Réel <b>${formatDuration(values.workedMinutes)}</b></span><span>Comptabilisé <b>${formatDuration(values.countedMinutes)}</b></span><span>Écart <b class="${gapClass(values.gapMinutes)}">${formatDuration(values.gapMinutes, { signed: true })}</b></span></div>`;
 }
 
 async function saveDay(event) {
@@ -385,6 +507,8 @@ async function saveDay(event) {
     pauseMinutes,
     plannedMinutes,
     comment: form.elements.comment.value.trim(),
+    calendarLabel: existing?.calendarLabel || "",
+    isHoliday: Boolean(existing?.isHoliday),
     createdAt: existing?.createdAt || now,
     updatedAt: now,
   });
@@ -407,17 +531,31 @@ async function savePreferences(event) {
   const standardDayMinutes = parseDuration(form.elements.standardDay.value);
   const annualTargetMinutes = parseDuration(form.elements.annualTarget.value);
   const fixedPauseMinutes = parseDuration(form.elements.fixedPause.value);
-  if ([standardDayMinutes, annualTargetMinutes, fixedPauseMinutes].some((value) => value === null)) {
+  const sundayMultiplier = Number(String(form.elements.sundayMultiplier.value).replace(",", "."));
+  const holidayMultiplier = Number(String(form.elements.holidayMultiplier.value).replace(",", "."));
+  const typeRules = {};
+  let invalidRule = false;
+  for (const [type] of DAY_TYPES) {
+    const coefficient = Number(String(form.elements[`coefficient-${type}`].value).replace(",", "."));
+    const fixedMinutes = parseSignedDuration(form.elements[`fixed-${type}`].value);
+    if (!Number.isFinite(coefficient) || coefficient < -5 || coefficient > 5 || fixedMinutes === null) invalidRule = true;
+    typeRules[type] = { coefficient, fixedMinutes };
+  }
+  if ([standardDayMinutes, annualTargetMinutes, fixedPauseMinutes].some((value) => value === null) || invalidRule || !Number.isFinite(sundayMultiplier) || !Number.isFinite(holidayMultiplier)) {
     announce("Utilise le format HH:MM pour les durées.", "warning");
     return;
   }
   state.settings = {
+    ...state.settings,
     standardDayMinutes,
     annualTargetMinutes,
     pauseMode: form.elements.pauseMode.value,
     fixedPauseMinutes,
     weekStartsOn: Number(form.elements.weekStartsOn.value),
     hour12: form.elements.hourFormat.value === "12",
+    sundayMultiplier,
+    holidayMultiplier,
+    typeRules,
   };
   await saveSettings(state.settings);
   renderAll();
@@ -524,6 +662,8 @@ function bindEvents() {
   });
   $$(".nav-button").forEach((button) => button.addEventListener("click", () => showView(button.dataset.viewTarget)));
   $("#day-form").addEventListener("submit", saveDay);
+  $("#day-form").addEventListener("input", renderDayRulePreview);
+  $("#day-form").addEventListener("change", renderDayRulePreview);
   $("#delete-day").addEventListener("click", removeDay);
   $("#close-day-dialog").addEventListener("click", () => $("#day-dialog").close());
   $("#settings-form").addEventListener("submit", savePreferences);

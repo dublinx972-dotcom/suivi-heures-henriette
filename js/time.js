@@ -12,6 +12,18 @@ export const DAY_TYPES = [
 
 export const TYPE_LABELS = Object.fromEntries(DAY_TYPES);
 
+export const DEFAULT_TYPE_RULES = {
+  work: { coefficient: 1, fixedMinutes: 0 },
+  rest: { coefficient: 0, fixedMinutes: 0 },
+  leave: { coefficient: 0, fixedMinutes: 0 },
+  rtt: { coefficient: -1, fixedMinutes: 0 },
+  mission: { coefficient: 1, fixedMinutes: 0 },
+  training: { coefficient: 1, fixedMinutes: 0 },
+  oncall: { coefficient: 1, fixedMinutes: 90 },
+  absence: { coefficient: 0, fixedMinutes: 0 },
+  other: { coefficient: 1, fixedMinutes: 0 },
+};
+
 export function localDateKey(date = new Date()) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -37,15 +49,47 @@ export function minutesBetween(startIso, endIso) {
   return Math.round(difference / 60000);
 }
 
-export function computeEntry(entry, now = new Date()) {
+export function typeRule(settings = {}, type = "other") {
+  const fallback = DEFAULT_TYPE_RULES[type] || DEFAULT_TYPE_RULES.other;
+  const configured = settings.typeRules?.[type] || {};
+  const coefficient = Number(configured.coefficient);
+  const fixedMinutes = Number(configured.fixedMinutes);
+  return {
+    coefficient: Number.isFinite(coefficient) ? coefficient : fallback.coefficient,
+    fixedMinutes: Number.isFinite(fixedMinutes) ? fixedMinutes : fallback.fixedMinutes,
+  };
+}
+
+export function isSunday(key) {
+  return dateFromKey(key).getDay() === 0;
+}
+
+export function computeEntry(entry, now = new Date(), settings = {}) {
   const end = entry.departure || (entry.arrival ? now.toISOString() : null);
   const elapsed = minutesBetween(entry.arrival, end);
   const workedMinutes = elapsed === null ? 0 : Math.max(0, elapsed - Number(entry.pauseMinutes || 0));
   const plannedMinutes = Math.max(0, Number(entry.plannedMinutes || 0));
+  const rule = typeRule(settings, entry.type);
+  const standardDayMinutes = Math.max(0, Number(settings.standardDayMinutes || 540));
+  const unconfirmedForecast = Boolean(entry.forecastOnly && !entry.arrival);
+  const coefficientBase = unconfirmedForecast ? 0 : workedMinutes || (rule.coefficient < 0 ? standardDayMinutes : 0);
+  const sundayMultiplier = Math.max(0, Number(settings.sundayMultiplier ?? 2));
+  const holidayMultiplier = Math.max(0, Number(settings.holidayMultiplier ?? 2));
+  let calendarMultiplier = 1;
+  if (workedMinutes > 0 && isSunday(entry.date) && entry.isHoliday) calendarMultiplier = Math.max(sundayMultiplier, holidayMultiplier);
+  else if (workedMinutes > 0 && isSunday(entry.date)) calendarMultiplier = sundayMultiplier;
+  else if (workedMinutes > 0 && entry.isHoliday) calendarMultiplier = holidayMultiplier;
+  const weightedMinutes = Math.round(coefficientBase * rule.coefficient * calendarMultiplier);
+  const countedMinutes = unconfirmedForecast ? 0 : weightedMinutes + Math.round(rule.fixedMinutes);
   return {
     workedMinutes,
+    countedMinutes,
     plannedMinutes,
-    gapMinutes: workedMinutes - plannedMinutes,
+    gapMinutes: unconfirmedForecast ? 0 : countedMinutes - plannedMinutes,
+    ruleCoefficient: rule.coefficient,
+    fixedMinutes: rule.fixedMinutes,
+    calendarMultiplier,
+    bonusMinutes: countedMinutes - workedMinutes,
     active: Boolean(entry.arrival && !entry.departure),
   };
 }
@@ -91,6 +135,21 @@ export function parseDuration(value) {
   return Number(match[1]) * 60 + Number(match[2] || 0);
 }
 
+export function parseSignedDuration(value) {
+  const text = String(value ?? "").trim().replace(/\s/g, "");
+  const match = /^([+-])?(\d{1,4})(?::([0-5]\d))?$/.exec(text);
+  if (!match) return null;
+  const minutes = Number(match[2]) * 60 + Number(match[3] || 0);
+  return match[1] === "-" ? -minutes : minutes;
+}
+
+export function signedDurationInput(minutes) {
+  const value = Math.round(Number(minutes || 0));
+  const sign = value < 0 ? "-" : value > 0 ? "+" : "";
+  const absolute = Math.abs(value);
+  return `${sign}${String(Math.floor(absolute / 60)).padStart(2, "0")}:${String(absolute % 60).padStart(2, "0")}`;
+}
+
 export function durationInput(minutes) {
   const value = Math.max(0, Number(minutes || 0));
   return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
@@ -134,16 +193,17 @@ export function entriesBetween(entries, start, end) {
   return entries.filter((entry) => entry.date >= first && entry.date <= last);
 }
 
-export function summarize(entries, now = new Date()) {
+export function summarize(entries, now = new Date(), settings = {}) {
   return entries.reduce(
     (total, entry) => {
-      const values = computeEntry(entry, now);
+      const values = computeEntry(entry, now, settings);
       total.workedMinutes += values.workedMinutes;
+      total.countedMinutes += values.countedMinutes;
       total.plannedMinutes += values.plannedMinutes;
       total.gapMinutes += values.gapMinutes;
       return total;
     },
-    { workedMinutes: 0, plannedMinutes: 0, gapMinutes: 0 },
+    { workedMinutes: 0, countedMinutes: 0, plannedMinutes: 0, gapMinutes: 0 },
   );
 }
 

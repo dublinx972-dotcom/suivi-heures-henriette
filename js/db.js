@@ -1,3 +1,5 @@
+import { DEFAULT_TYPE_RULES } from "./time.js?v=1.1.0";
+
 const DB_NAME = "suivi-heures-personnel";
 const DB_VERSION = 1;
 
@@ -8,6 +10,9 @@ export const DEFAULT_SETTINGS = {
   fixedPauseMinutes: 0,
   weekStartsOn: 1,
   hour12: false,
+  sundayMultiplier: 2,
+  holidayMultiplier: 2,
+  typeRules: DEFAULT_TYPE_RULES,
 };
 
 let databasePromise;
@@ -63,13 +68,28 @@ export function putEntry(entry) {
   return transaction("entries", "readwrite", (store) => store.put(entry));
 }
 
+export async function putEntries(entries) {
+  const database = await openDatabase();
+  await new Promise((resolve, reject) => {
+    const tx = database.transaction("entries", "readwrite");
+    const store = tx.objectStore("entries");
+    for (const entry of entries) store.put(entry);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 export function deleteEntry(date) {
   return transaction("entries", "readwrite", (store) => store.delete(date));
 }
 
 export async function loadSettings() {
   const record = await transaction("settings", "readonly", (store) => store.get("preferences"));
-  return { ...DEFAULT_SETTINGS, ...(record?.value || {}) };
+  const saved = record?.value || {};
+  const typeRules = Object.fromEntries(
+    Object.entries(DEFAULT_TYPE_RULES).map(([type, fallback]) => [type, { ...fallback, ...(saved.typeRules?.[type] || {}) }]),
+  );
+  return { ...DEFAULT_SETTINGS, ...saved, typeRules };
 }
 
 export function saveSettings(settings) {
@@ -92,13 +112,16 @@ export async function replaceData(entries, settings) {
 }
 
 export async function mergeData(entries) {
-  const existing = new Set((await listEntries()).map((entry) => entry.date));
+  const existing = new Map((await listEntries()).map((entry) => [entry.date, entry]));
   const database = await openDatabase();
   await new Promise((resolve, reject) => {
     const tx = database.transaction("entries", "readwrite");
     const store = tx.objectStore("entries");
     for (const entry of entries) {
-      if (!existing.has(entry.date)) store.put(entry);
+      const current = existing.get(entry.date);
+      if (!current || (String(current.source || "").startsWith("forecast:") && !String(entry.source || "").startsWith("forecast:"))) {
+        store.put(entry);
+      }
     }
     tx.oncomplete = resolve;
     tx.onerror = () => reject(tx.error);

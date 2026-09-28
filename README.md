@@ -10,6 +10,17 @@ PWA personnelle de suivi du temps de travail, conçue d'abord pour l'iPhone. Ell
 
 Le pointage actif est conservé dans IndexedDB même si Safari ou l'application est complètement fermé. Les durées utilisent les timestamps réels, y compris lors des changements d'heure.
 
+## Calendrier prévisionnel et règles
+
+Le calendrier prévisionnel 2026 est intégré à l'application : jours travaillés, vendredis prévus, repos, congés, récupérations et journée de solidarité. Il sert uniquement de prévision. Une journée préremplie ne crée jamais d'heures réellement travaillées ou comptabilisées tant qu'elle n'est pas pointée ou confirmée dans l'éditeur.
+
+Le bilan distingue toujours le **temps réel**, le **temps comptabilisé** et le **temps prévu**. Dans **Réglages > Poids des types de journée**, chaque type possède :
+
+- un coefficient appliqué au temps réel ;
+- un forfait horaire ajouté ou retiré ensuite.
+
+Les valeurs initiales sont notamment `Travail x1`, `Astreinte x1 + 01:30` et `RTT / récupération x-1 journée`. Les coefficients liés à la date sont réglés séparément : `Dimanche x2` et `Jour férié x2`.
+
 ## Lancer sur un ordinateur
 
 Le projet ne nécessite aucune installation de dépendances pour fonctionner. Depuis ce dossier :
@@ -52,7 +63,7 @@ Les tests de calcul utilisent uniquement Node.js :
 npm test
 ```
 
-Ils couvrent les trois scénarios horaires obligatoires, les pauses, une période active, les jours sans pointage et les changements d'heure.
+Ils couvrent les trois scénarios horaires obligatoires, les pauses, une période active, les jours sans pointage, les changements d'heure, les astreintes, les récupérations, les dimanches, les jours fériés et les coefficients personnalisés.
 
 Le parcours navigateur complet nécessite Playwright :
 
@@ -61,7 +72,7 @@ npm install
 npm run test:e2e
 ```
 
-Il vérifie la persistance après rechargement, la correction d'une journée, l'export Excel, l'export/import JSON, l'absence de débordement horizontal et le redémarrage hors connexion.
+Il vérifie aussi le chargement du calendrier prévisionnel 2026, la persistance après rechargement, la correction d'une journée, l'export Excel, l'export/import JSON, l'absence de débordement horizontal et le redémarrage hors connexion.
 
 ## Structure
 
@@ -71,8 +82,9 @@ Il vérifie la persistance après rechargement, la correction d'une journée, l'
 - `js/time.js` : calculs et formats horaires.
 - `js/app.js` : navigation et interactions.
 - `js/xlsx.js` : génération du véritable classeur Excel.
+- `assets/calendrier-previsionnel-2026.json` : calendrier prévisionnel annuel intégré.
 - `manifest.webmanifest` et `sw.js` : installation et fonctionnement hors connexion.
 
-L'architecture permet d'ajouter plus tard un import de planning, des raccourcis iPhone, un widget, le NFC ou une synchronisation, sans que ces fonctions alourdissent l'usage actuel.
+L'architecture permet d'ajouter plus tard un nouveau millésime de calendrier, des raccourcis iPhone, un widget, le NFC ou une synchronisation, sans que ces fonctions alourdissent l'usage actuel.
 
 Les bibliothèques JavaScript utilisées dans le navigateur sont copiées dans `vendor/`. Leurs mentions sont dans `LICENSES.md`.

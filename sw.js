@@ -1,18 +1,19 @@
-const CACHE_NAME = "suivi-heures-v1";
+const CACHE_NAME = "suivi-heures-v2";
 const APP_FILES = [
   "./",
   "./index.html",
-  "./styles.css",
+  "./styles.css?v=1.1.0",
   "./manifest.webmanifest",
-  "./js/app.js",
-  "./js/db.js",
-  "./js/time.js",
-  "./js/xlsx.js",
+  "./js/app.js?v=1.1.0",
+  "./js/db.js?v=1.1.0",
+  "./js/time.js?v=1.1.0",
+  "./js/xlsx.js?v=1.1.0",
   "./vendor/jszip.min.js",
   "./vendor/lucide.min.js",
   "./assets/icon-192.png",
   "./assets/icon-512.png",
-  "./assets/apple-touch-icon.png"
+  "./assets/apple-touch-icon.png",
+  "./assets/calendrier-previsionnel-2026.json"
 ];
 
 self.addEventListener("install", (event) => {

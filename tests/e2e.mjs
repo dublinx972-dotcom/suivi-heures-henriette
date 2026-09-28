@@ -44,6 +44,21 @@ try {
   const page = await context.newPage();
   page.on("dialog", (dialog) => dialog.accept());
   await page.goto(`http://127.0.0.1:${port}`, { waitUntil: "networkidle" });
+  const forecast = await page.evaluate(async () => {
+    const database = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("suivi-heures-personnel");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    return new Promise((resolve, reject) => {
+      const request = database.transaction("entries", "readonly").objectStore("entries").get("2026-03-13");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  });
+  assert.equal(forecast.plannedMinutes, 420);
+  assert.equal(forecast.calendarLabel, "Journée de solidarité 08:00-15:00");
+  assert.equal(forecast.forecastOnly, true);
   await page.screenshot({ path: join(output, "mobile-arrival.png"), fullPage: true });
   await page.getByRole("button", { name: "ARRIVÉE" }).click();
   await page.reload({ waitUntil: "networkidle" });
@@ -77,7 +92,14 @@ try {
   await page.screenshot({ path: join(output, "desktop-summary.png"), fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
 
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: /Réglages/ }).click();
+  await page.locator('input[name="coefficient-oncall"]').fill("1.25");
+  await page.getByRole("button", { name: /Enregistrer les réglages/ }).click();
+  assert.equal(await page.locator('input[name="coefficient-oncall"]').inputValue(), "1.25");
+  await page.locator("#toast").waitFor({ state: "hidden" });
+  await page.screenshot({ path: join(output, "mobile-settings.png"), fullPage: true });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   const excelDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: /Exporter Excel/ }).click();
   const excel = await excelDownload;
@@ -89,8 +111,9 @@ try {
   }
   const journalXml = await archive.file("xl/worksheets/sheet1.xml").async("string");
   assert.match(journalXml, /<c r="A2" s="2"><v>/, "La date du journal doit être une valeur Excel");
-  assert.match(journalXml, /<c r="D2" s="3"><v>/, "L’arrivée doit être une valeur horaire Excel");
-  assert.match(journalXml, /<c r="G2" s="4"><v>/, "Le temps travaillé doit être une durée Excel");
+  assert.match(journalXml, /<c r="D\d+" s="3"><v>/, "L’arrivée doit être une valeur horaire Excel");
+  assert.match(journalXml, /<c r="G\d+" s="4"><v>/, "Le temps réel doit être une durée Excel");
+  assert.match(journalXml, /Temps comptabilisé/, "Le journal doit distinguer le temps comptabilisé");
 
   const backupDownload = page.waitForEvent("download");
   await page.getByRole("button", { name: /Exporter une sauvegarde/ }).click();
@@ -98,7 +121,8 @@ try {
   const backupPath = join(output, await backup.suggestedFilename());
   await backup.saveAs(backupPath);
   const backupJson = JSON.parse(await readFile(backupPath, "utf8"));
-  assert.equal(backupJson.entries.length, 1);
+  assert.equal(backupJson.entries.length, 365);
+  assert.ok(backupJson.settings.typeRules.work);
 
   await page.getByRole("button", { name: /Remettre à zéro/ }).click();
   await page.locator("#backup-file").setInputFiles(backupPath);
@@ -117,10 +141,12 @@ try {
   console.log(JSON.stringify({
     pointagePersistant: true,
     correction0900: true,
+    calendrierPrevisionnel2026: true,
+    poidsTypesConfigurables: true,
     exportExcel: true,
     sauvegardeRestauree: true,
     horsConnexion: true,
-    captures: ["mobile-arrival.png", "mobile-today.png", "mobile-calendar.png", "mobile-summary.png", "mobile-annual.png", "desktop-summary.png"],
+    captures: ["mobile-arrival.png", "mobile-today.png", "mobile-calendar.png", "mobile-summary.png", "mobile-annual.png", "mobile-settings.png", "desktop-summary.png"],
   }, null, 2));
 } finally {
   await browser.close();
