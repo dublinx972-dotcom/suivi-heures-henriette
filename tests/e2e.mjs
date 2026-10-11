@@ -92,6 +92,10 @@ try {
   });
   await page.reload({ waitUntil: "networkidle" });
   assert.match(await page.locator("#global-balance-today").innerText(), /\+00 h 45/);
+  await page.locator("#global-balance-today").getByRole("button", { name: "Voir le détail" }).click();
+  assert.match(await page.locator("#balance-dialog").innerText(), /Solde cumulé \+00 h 45/i);
+  assert.match(await page.locator("#balance-detail-list").innerText(), /Compté 09 h 45 − prévu 09 h 00/);
+  await page.getByRole("button", { name: "Fermer" }).click();
   await page.screenshot({ path: join(output, "mobile-arrival.png"), fullPage: true });
   await page.getByRole("button", { name: "ARRIVÉE" }).click();
   await page.reload({ waitUntil: "networkidle" });
@@ -162,7 +166,7 @@ try {
   await page.locator("#backup-file").setInputFiles(backupPath);
   await page.getByRole("button", { name: /Fusionner sans écraser/ }).click();
   await page.getByRole("button", { name: /Aujourd’hui/ }).click();
-  await page.getByText("JOURNÉE TERMINÉE").waitFor();
+  await page.getByText("JOURNÉE TERMINÉE", { exact: true }).waitFor();
 
   await page.reload({ waitUntil: "networkidle" });
   await page.waitForFunction(() => navigator.serviceWorker.controller !== null);

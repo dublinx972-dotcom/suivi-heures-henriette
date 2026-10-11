@@ -1,4 +1,4 @@
-import { computeEntry, dateFromKey, formatDuration, typeRule, TYPE_LABELS } from "./time.js?v=1.2.0";
+import { computeEntry, dateFromKey, formatDuration, typeRule, TYPE_LABELS } from "./time.js?v=1.2.1";
 
 const MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 

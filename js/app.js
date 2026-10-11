@@ -22,7 +22,7 @@ import {
   theoreticalDeparture,
   toLocalDateTimeInput,
   typeRule,
-} from "./time.js?v=1.2.0";
+} from "./time.js?v=1.2.1";
 import {
   DEFAULT_SETTINGS,
   clearAllData,
@@ -34,10 +34,10 @@ import {
   putEntries,
   replaceData,
   saveSettings,
-} from "./db.js?v=1.2.0";
-import { buildExcelBlob, downloadBlob, workbookSummary } from "./xlsx.js?v=1.2.0";
+} from "./db.js?v=1.2.1";
+import { buildExcelBlob, downloadBlob, workbookSummary } from "./xlsx.js?v=1.2.1";
 
-const VERSION = "1.2.0";
+const VERSION = "1.2.1";
 const state = {
   entries: [],
   settings: { ...DEFAULT_SETTINGS },
@@ -176,13 +176,16 @@ function ruleSummary(entry) {
   return parts.join(" · ");
 }
 
-function cumulativeBalance(now = new Date()) {
+function balanceEntries(now = new Date()) {
   const todayKey = localDateKey(now);
-  const settledEntries = state.entries.filter((entry) => {
+  return state.entries.filter((entry) => {
     if (entry.date > todayKey || entry.forecastOnly) return false;
     return !(entry.arrival && !entry.departure);
   });
-  return summarize(settledEntries, now, state.settings).gapMinutes;
+}
+
+function cumulativeBalance(now = new Date()) {
+  return summarize(balanceEntries(now), now, state.settings).gapMinutes;
 }
 
 function cumulativeBalanceBanner(minutes, id) {
@@ -190,8 +193,28 @@ function cumulativeBalanceBanner(minutes, id) {
   const label = minutes > 0 ? "Temps disponible à récupérer" : minutes < 0 ? "Temps restant à rattraper" : "Solde cumulé";
   return `<section id="${id}" class="cumulative-balance ${tone}" aria-label="${label}">
     <div><span>SOLDE CUMULÉ</span><strong>${label}</strong><small>Reporté automatiquement d’un mois à l’autre</small></div>
-    <b>${formatDuration(minutes, { signed: true })}</b>
+    <div class="balance-total"><b>${formatDuration(minutes, { signed: true })}</b><button type="button" data-action="show-balance-details"><i data-lucide="list"></i>Voir le détail</button></div>
   </section>`;
+}
+
+function showBalanceDetails() {
+  const now = new Date();
+  const rows = balanceEntries(now)
+    .map((entry) => ({ entry, values: computeEntry(entry, now, state.settings) }))
+    .filter(({ values }) => values.gapMinutes !== 0)
+    .sort((a, b) => b.entry.date.localeCompare(a.entry.date));
+  const total = rows.reduce((sum, row) => sum + row.values.gapMinutes, 0);
+  const totalNode = $("#balance-dialog-total");
+  totalNode.textContent = `Solde cumulé ${formatDuration(total, { signed: true })}`;
+  $("#balance-detail-list").innerHTML = rows.length
+    ? rows.map(({ entry, values }) => `<button class="balance-detail-row" type="button" data-action="open-balance-day" data-date="${entry.date}">
+        <span><strong>${formatShortDate(entry.date)} · ${escapeHtml(TYPE_LABELS[entry.type] || "Autre")}</strong><small>Compté ${formatDuration(values.countedMinutes)} − prévu ${formatDuration(values.plannedMinutes)}</small></span>
+        <b class="${gapClass(values.gapMinutes)}">${formatDuration(values.gapMinutes, { signed: true })}</b>
+        <i data-lucide="chevron-right"></i>
+      </button>`).join("")
+    : `<div class="empty-balance-detail"><i data-lucide="circle-check"></i><strong>Aucun écart enregistré</strong><span>Les journées équilibrées et le planning non confirmé ne modifient pas le solde.</span></div>`;
+  refreshIcons();
+  $("#balance-dialog").showModal();
 }
 
 function renderToday() {
@@ -677,6 +700,11 @@ function bindEvents() {
     if (action === "clock-in") await clockIn();
     if (action === "clock-out") await clockOut();
     if (action === "open-day") openDayEditor(target.dataset.date);
+    if (action === "show-balance-details") showBalanceDetails();
+    if (action === "open-balance-day") {
+      $("#balance-dialog").close();
+      openDayEditor(target.dataset.date);
+    }
     if (action === "calendar-prev") moveCalendar(-1);
     if (action === "calendar-next") moveCalendar(1);
     if (action === "calendar-today") {
@@ -690,6 +718,7 @@ function bindEvents() {
   $("#day-form").addEventListener("change", renderDayRulePreview);
   $("#delete-day").addEventListener("click", removeDay);
   $("#close-day-dialog").addEventListener("click", () => $("#day-dialog").close());
+  $("#close-balance-dialog").addEventListener("click", () => $("#balance-dialog").close());
   $("#settings-form").addEventListener("submit", savePreferences);
   $("#settings-form").elements.pauseMode.addEventListener("change", (event) => {
     $("#fixed-pause-row").hidden = event.target.value !== "fixed";
