@@ -11,7 +11,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png" />
-    <link rel="stylesheet" href="styles.css?v=1.2.0" />
+    <link rel="stylesheet" href="styles.css?v=1.2.1" />
     <title>Suivi des heures</title>
   </head>
   <body>
@@ -160,6 +160,17 @@
       </form>
     </dialog>
 
+    <dialog id="balance-dialog" class="dialog balance-dialog">
+      <header class="dialog-header">
+        <div><span>CALCUL DU SOLDE</span><strong id="balance-dialog-total">Solde cumulé</strong></div>
+        <button id="close-balance-dialog" class="icon-command" type="button" aria-label="Fermer" title="Fermer"><i data-lucide="x"></i></button>
+      </header>
+      <div class="dialog-body balance-dialog-body">
+        <p>Chaque ligne correspond à une journée terminée qui augmente ou diminue ton solde. Touche une ligne pour la corriger.</p>
+        <div id="balance-detail-list" class="balance-detail-list"></div>
+      </div>
+    </dialog>
+
     <dialog id="import-dialog" class="dialog confirm-dialog">
       <div class="dialog-header"><div><span>Importer la sauvegarde</span><strong>Choisir le mode de restauration</strong></div></div>
       <div class="dialog-body"><p id="import-summary"></p><p><strong>Fusionner</strong> ajoute seulement les dates absentes. <strong>Remplacer</strong> efface les données actuelles après confirmation.</p></div>
@@ -179,6 +190,6 @@
 
     <script src="vendor/jszip.min.js"></script>
     <script src="vendor/lucide.min.js"></script>
-    <script type="module" src="js/app.js?v=1.2.0"></script>
+    <script type="module" src="js/app.js?v=1.2.1"></script>
   </body>
 </html>
