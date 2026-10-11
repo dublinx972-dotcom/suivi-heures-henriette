@@ -21,6 +21,8 @@ Le bilan distingue toujours le **temps réel**, le **temps comptabilisé** et le
 
 Les valeurs initiales sont notamment `Travail x1`, `Astreinte x1 + 01:30` et `RTT / récupération x-1 journée`. Les coefficients liés à la date sont réglés séparément : `Dimanche x2` et `Jour férié x2`.
 
+Le **solde cumulé** des journées terminées est reporté automatiquement d'un mois à l'autre. Il reste visible sur les écrans **Aujourd'hui** et **Bilan** ; une récupération confirmée vient le diminuer.
+
 ## Lancer sur un ordinateur
 
 Le projet ne nécessite aucune installation de dépendances pour fonctionner. Depuis ce dossier :

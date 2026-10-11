@@ -59,6 +59,39 @@ try {
   assert.equal(forecast.plannedMinutes, 420);
   assert.equal(forecast.calendarLabel, "Journée de solidarité 08:00-15:00");
   assert.equal(forecast.forecastOnly, true);
+  await page.evaluate(async () => {
+    const date = new Date();
+    date.setDate(1);
+    date.setMonth(date.getMonth() - 1);
+    while (date.getDay() !== 1) date.setDate(date.getDate() + 1);
+    const pad = (value) => String(value).padStart(2, "0");
+    const key = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    const arrival = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 7, 0).toISOString();
+    const departure = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 16, 45).toISOString();
+    const database = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("suivi-heures-personnel");
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise((resolve, reject) => {
+      const transaction = database.transaction("entries", "readwrite");
+      transaction.objectStore("entries").put({
+        date: key,
+        type: "work",
+        arrival,
+        departure,
+        pauseMinutes: 0,
+        plannedMinutes: 540,
+        comment: "Test report mensuel",
+        createdAt: arrival,
+        updatedAt: departure,
+      });
+      transaction.oncomplete = resolve;
+      transaction.onerror = () => reject(transaction.error);
+    });
+  });
+  await page.reload({ waitUntil: "networkidle" });
+  assert.match(await page.locator("#global-balance-today").innerText(), /\+00 h 45/);
   await page.screenshot({ path: join(output, "mobile-arrival.png"), fullPage: true });
   await page.getByRole("button", { name: "ARRIVÉE" }).click();
   await page.reload({ waitUntil: "networkidle" });
@@ -83,6 +116,7 @@ try {
   await page.getByRole("button", { name: /Calendrier/ }).click();
   await page.screenshot({ path: join(output, "mobile-calendar.png"), fullPage: true });
   await page.getByRole("button", { name: /Bilan/ }).click();
+  assert.match(await page.locator("#global-balance-summary").innerText(), /\+\d{2} h 45/);
   await page.screenshot({ path: join(output, "mobile-summary.png"), fullPage: true });
   await page.locator(".annual-panel").scrollIntoViewIfNeeded();
   await page.screenshot({ path: join(output, "mobile-annual.png") });
@@ -143,6 +177,7 @@ try {
     correction0900: true,
     calendrierPrevisionnel2026: true,
     poidsTypesConfigurables: true,
+    reportMensuelDuSolde: true,
     exportExcel: true,
     sauvegardeRestauree: true,
     horsConnexion: true,

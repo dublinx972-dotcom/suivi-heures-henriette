@@ -22,7 +22,7 @@ import {
   theoreticalDeparture,
   toLocalDateTimeInput,
   typeRule,
-} from "./time.js?v=1.1.0";
+} from "./time.js?v=1.2.0";
 import {
   DEFAULT_SETTINGS,
   clearAllData,
@@ -34,10 +34,10 @@ import {
   putEntries,
   replaceData,
   saveSettings,
-} from "./db.js?v=1.1.0";
-import { buildExcelBlob, downloadBlob, workbookSummary } from "./xlsx.js?v=1.1.0";
+} from "./db.js?v=1.2.0";
+import { buildExcelBlob, downloadBlob, workbookSummary } from "./xlsx.js?v=1.2.0";
 
-const VERSION = "1.1.0";
+const VERSION = "1.2.0";
 const state = {
   entries: [],
   settings: { ...DEFAULT_SETTINGS },
@@ -176,11 +176,30 @@ function ruleSummary(entry) {
   return parts.join(" · ");
 }
 
+function cumulativeBalance(now = new Date()) {
+  const todayKey = localDateKey(now);
+  const settledEntries = state.entries.filter((entry) => {
+    if (entry.date > todayKey || entry.forecastOnly) return false;
+    return !(entry.arrival && !entry.departure);
+  });
+  return summarize(settledEntries, now, state.settings).gapMinutes;
+}
+
+function cumulativeBalanceBanner(minutes, id) {
+  const tone = gapClass(minutes);
+  const label = minutes > 0 ? "Temps disponible à récupérer" : minutes < 0 ? "Temps restant à rattraper" : "Solde cumulé";
+  return `<section id="${id}" class="cumulative-balance ${tone}" aria-label="${label}">
+    <div><span>SOLDE CUMULÉ</span><strong>${label}</strong><small>Reporté automatiquement d’un mois à l’autre</small></div>
+    <b>${formatDuration(minutes, { signed: true })}</b>
+  </section>`;
+}
+
 function renderToday() {
   const now = new Date();
   const todayKey = localDateKey(now);
   const today = entryForDate(todayKey);
   const active = activeEntry();
+  const balanceBanner = cumulativeBalanceBanner(cumulativeBalance(now), "global-balance-today");
   const host = $("#today-content");
   $("#today-date").textContent = formatLongDate(now);
 
@@ -189,6 +208,7 @@ function renderToday() {
     const expected = theoreticalDeparture(active);
     const crossesDay = active.date !== todayKey;
     host.innerHTML = `
+      ${balanceBanner}
       ${crossesDay ? `<section class="alert-band" role="alert"><i data-lucide="triangle-alert"></i><div><strong>Période commencée ${formatShortDate(active.date)}</strong><span>Elle est toujours active. Termine-la maintenant ou corrige ses horaires.</span></div></section>` : ""}
       <section class="today-hero active-state">
         <p class="eyebrow">EN COURS DEPUIS ${formatClock(active.arrival, state.settings.hour12)}</p>
@@ -208,6 +228,7 @@ function renderToday() {
   } else if (today?.arrival && today?.departure) {
     const values = computeEntry(today, new Date(today.departure), state.settings);
     host.innerHTML = `
+      ${balanceBanner}
       <section class="today-hero completed-state">
         <p class="eyebrow">JOURNÉE TERMINÉE</p>
         <div class="completion-mark"><i data-lucide="check"></i></div>
@@ -225,6 +246,7 @@ function renderToday() {
   } else {
     const planned = today?.plannedMinutes || 0;
     host.innerHTML = `
+      ${balanceBanner}
       <section class="today-hero ready-state">
         <p class="eyebrow">PRÊT À COMMENCER</p>
         <button class="punch-button arrival" type="button" data-action="clock-in">
@@ -326,8 +348,10 @@ function renderSummary() {
   const target = Number(state.settings.annualTargetMinutes || 0);
   const progress = target ? Math.min(100, Math.max(0, (yearSummary.countedMinutes / target) * 100)) : 0;
   const remaining = Math.max(0, target - yearSummary.countedMinutes);
+  const balanceBanner = cumulativeBalanceBanner(cumulativeBalance(now), "global-balance-summary");
 
   $("#summary-content").innerHTML = `
+    ${balanceBanner}
     <div class="summary-grid">
       ${summaryBlock("Aujourd’hui", todaySummary)}
       ${summaryBlock("Cette semaine", weekSummary, `${formatShortDate(localDateKey(weekStart))} — ${formatShortDate(localDateKey(weekEnd))}`)}

@@ -1,4 +1,4 @@
-import { DEFAULT_TYPE_RULES } from "./time.js?v=1.1.0";
+import { DEFAULT_TYPE_RULES } from "./time.js?v=1.2.0";
 
 const DB_NAME = "suivi-heures-personnel";
 const DB_VERSION = 1;

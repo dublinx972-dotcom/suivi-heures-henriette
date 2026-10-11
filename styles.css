@@ -140,6 +140,29 @@ main { width: min(100%, 940px); margin: 0 auto; }
 .plan-line strong { color: var(--navy); }
 .rule-inline { max-width: 58%; color: var(--muted); font-size: 11px; line-height: 1.4; text-align: right; }
 
+.cumulative-balance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--navy-2);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.cumulative-balance > div { display: grid; gap: 2px; min-width: 0; }
+.cumulative-balance span { color: var(--muted); font-size: 10px; font-weight: 850; }
+.cumulative-balance strong { color: var(--navy); font-size: 15px; }
+.cumulative-balance small { color: var(--muted); font-size: 11px; line-height: 1.35; }
+.cumulative-balance > b { flex: 0 0 auto; color: var(--navy); font-size: 25px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cumulative-balance.positive { border-left-color: var(--green); }
+.cumulative-balance.positive > b { color: var(--green); }
+.cumulative-balance.negative { border-left-color: var(--red); }
+.cumulative-balance.negative > b { color: var(--red); }
+
 .alert-band { display: flex; gap: 12px; margin: 0 0 14px; padding: 13px; color: #6e3e00; background: #fff3df; border: 1px solid #f0d4a6; border-radius: 8px; }
 .alert-band svg { flex: 0 0 auto; width: 20px; }
 .alert-band div { display: grid; gap: 3px; }

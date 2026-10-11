@@ -86,3 +86,11 @@ test("le poids d’un type est configurable", () => {
   );
   assert.equal(result.countedMinutes, 810);
 });
+
+test("les écarts de plusieurs mois restent cumulables", () => {
+  const result = summarize([
+    entry("2026-09-07T07:00:00+02:00", "2026-09-07T16:45:00+02:00"),
+    { ...entry("2026-10-05T07:00:00+02:00", "2026-10-05T16:00:00+02:00"), date: "2026-10-05" },
+  ]);
+  assert.equal(result.gapMinutes, 45);
+});
