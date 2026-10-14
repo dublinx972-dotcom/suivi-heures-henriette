@@ -1,13 +1,13 @@
-const CACHE_NAME = "suivi-heures-v5";
+const CACHE_NAME = "suivi-heures-v6";
 const APP_FILES = [
   "./",
   "./index.html",
-  "./styles.css?v=1.2.1",
+  "./styles.css?v=1.3.0",
   "./manifest.webmanifest",
-  "./js/app.js?v=1.2.1",
-  "./js/db.js?v=1.2.1",
-  "./js/time.js?v=1.2.1",
-  "./js/xlsx.js?v=1.2.1",
+  "./js/app.js?v=1.3.0",
+  "./js/db.js?v=1.3.0",
+  "./js/time.js?v=1.3.0",
+  "./js/xlsx.js?v=1.3.0",
   "./vendor/jszip.min.js",
   "./vendor/lucide.min.js",
   "./assets/icon-192.png",

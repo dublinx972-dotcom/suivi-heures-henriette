@@ -23,6 +23,8 @@ Les valeurs initiales sont notamment `Travail x1`, `Astreinte x1 + 01:30` et `RT
 
 Le **solde cumulé** des journées terminées est reporté automatiquement d'un mois à l'autre. Il reste visible sur les écrans **Aujourd'hui** et **Bilan** ; une récupération confirmée vient le diminuer. Le bouton **Voir le détail** affiche chaque date qui compose ce solde avec le calcul « comptabilisé − prévu » et ouvre directement la journée à corriger.
 
+Une récupération partielle peut être posée directement sur une journée terminée avec les raccourcis **30 min**, **1 h**, **2 h** ou une durée personnalisée. L'heure de départ réelle ne change jamais : l'application conserve séparément le temps travaillé, la récupération utilisée et le temps comptabilisé. Modifier ou retirer la récupération remplace la valeur précédente et recrédite automatiquement le solde, sans double déduction.
+
 ## Lancer sur un ordinateur
 
 Le projet ne nécessite aucune installation de dépendances pour fonctionner. Depuis ce dossier :

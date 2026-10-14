@@ -47,7 +47,40 @@ test("une période active utilise l’heure courante et reste active", () => {
 
 test("les journées sans pointage ne créent pas d’heures réalisées", () => {
   const result = summarize([{ date: "2026-01-16", type: "rest", arrival: null, departure: null, pauseMinutes: 0, plannedMinutes: 0 }]);
-  assert.deepEqual(result, { workedMinutes: 0, countedMinutes: 0, plannedMinutes: 0, gapMinutes: 0 });
+  assert.deepEqual(result, { workedMinutes: 0, recoveryUsedMinutes: 0, countedMinutes: 0, plannedMinutes: 0, gapMinutes: 0, recoverableDeltaMinutes: 0 });
+});
+
+test("une heure de récupération complète une journée sans modifier le départ réel", () => {
+  const result = computeEntry({
+    ...entry("2026-10-14T08:00:00+02:00", "2026-10-14T16:00:00+02:00"),
+    date: "2026-10-14",
+    recoveryUsedMinutes: 60,
+  });
+  assert.equal(result.workedMinutes, 480);
+  assert.equal(result.recoveryUsedMinutes, 60);
+  assert.equal(result.countedMinutes, 540);
+  assert.equal(result.gapMinutes, 0);
+  assert.equal(result.recoverableDeltaMinutes, -60);
+});
+
+test("réduire la récupération recrédite le compteur sans masquer le déficit restant", () => {
+  const result = computeEntry({
+    ...entry("2026-10-14T08:00:00+02:00", "2026-10-14T16:00:00+02:00"),
+    date: "2026-10-14",
+    recoveryUsedMinutes: 30,
+  });
+  assert.equal(result.countedMinutes, 510);
+  assert.equal(result.gapMinutes, -30);
+  assert.equal(result.recoverableDeltaMinutes, -30);
+});
+
+test("le bilan sépare les heures acquises et la récupération consommée", () => {
+  const result = summarize([
+    entry("2026-09-07T08:00:00+02:00", "2026-09-07T17:45:00+02:00"),
+    { ...entry("2026-10-14T08:00:00+02:00", "2026-10-14T16:00:00+02:00"), date: "2026-10-14", recoveryUsedMinutes: 60 },
+  ]);
+  assert.equal(result.recoveryUsedMinutes, 60);
+  assert.equal(result.recoverableDeltaMinutes, -15);
 });
 
 test("une astreinte ajoute le forfait configurable de 01:30", () => {

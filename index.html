@@ -11,7 +11,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png" />
-    <link rel="stylesheet" href="styles.css?v=1.2.1" />
+    <link rel="stylesheet" href="styles.css?v=1.3.0" />
     <title>Suivi des heures</title>
   </head>
   <body>
@@ -151,11 +151,41 @@
             <label><span>Temps prévu</span><input name="planned" inputmode="numeric" pattern="\d{1,4}:\d{2}" placeholder="09:00" required /></label>
           </div>
           <section id="day-rule-preview" class="day-rule-preview" aria-live="polite"></section>
+          <button id="day-recovery-action" class="recovery-inline-command" type="button" data-action="open-recovery-editor">
+            <i data-lucide="circle-minus"></i><span><strong>− POSER DE LA RÉCUP</strong><small id="day-recovery-status">Aucune récupération utilisée</small></span><i data-lucide="chevron-right"></i>
+          </button>
           <label><span>Commentaire</span><textarea name="comment" rows="3" maxlength="500" placeholder="Facultatif"></textarea></label>
         </div>
         <footer class="dialog-footer">
           <button id="delete-day" class="delete-command" type="button"><i data-lucide="trash-2"></i>Supprimer</button>
           <button class="primary-command" type="submit"><i data-lucide="check"></i>Enregistrer</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="recovery-dialog" class="dialog recovery-dialog">
+      <form id="recovery-form">
+        <header class="dialog-header">
+          <div><span>RÉCUPÉRATION</span><strong id="recovery-dialog-date">Poser de la récup</strong></div>
+          <button id="close-recovery-dialog" class="icon-command" type="button" aria-label="Fermer" title="Fermer"><i data-lucide="x"></i></button>
+        </header>
+        <div class="dialog-body recovery-dialog-body">
+          <div class="recovery-context">
+            <div><span>Solde disponible</span><strong id="recovery-available">00 h 00</strong></div>
+            <div><span>Manquant sur la journée</span><strong id="recovery-needed">00 h 00</strong></div>
+          </div>
+          <div id="recovery-presets" class="recovery-presets" aria-label="Durée de récupération">
+            <button type="button" data-action="select-recovery" data-minutes="30">30 min</button>
+            <button type="button" data-action="select-recovery" data-minutes="60">1 h</button>
+            <button type="button" data-action="select-recovery" data-minutes="120">2 h</button>
+            <button type="button" data-action="select-custom-recovery">Personnalisé</button>
+          </div>
+          <label id="custom-recovery-row" class="custom-recovery-row" hidden><span>Durée personnalisée · format HH:MM</span><input name="customRecovery" inputmode="numeric" pattern="\d{1,3}:\d{2}" placeholder="01:15" /></label>
+          <p id="recovery-warning" class="recovery-warning" role="alert" hidden></p>
+        </div>
+        <footer class="dialog-footer">
+          <button id="remove-recovery" class="delete-command" type="button"><i data-lucide="rotate-ccw"></i>Retirer la récup</button>
+          <button id="validate-recovery" class="primary-command" type="submit"><i data-lucide="check"></i>Valider</button>
         </footer>
       </form>
     </dialog>
@@ -190,6 +220,6 @@
 
     <script src="vendor/jszip.min.js"></script>
     <script src="vendor/lucide.min.js"></script>
-    <script type="module" src="js/app.js?v=1.2.1"></script>
+    <script type="module" src="js/app.js?v=1.3.0"></script>
   </body>
 </html>

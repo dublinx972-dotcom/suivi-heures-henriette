@@ -1,4 +1,4 @@
-import { computeEntry, dateFromKey, formatDuration, typeRule, TYPE_LABELS } from "./time.js?v=1.2.1";
+import { computeEntry, dateFromKey, formatDuration, typeRule, TYPE_LABELS } from "./time.js?v=1.3.0";
 
 const MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
@@ -22,10 +22,10 @@ function columnName(index) {
   return result;
 }
 
-function excelDate1904(key) {
+function excelDate(key) {
   const date = dateFromKey(key);
   const utc = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
-  return (utc - Date.UTC(1904, 0, 1)) / 86400000;
+  return (utc - Date.UTC(1899, 11, 30)) / 86400000;
 }
 
 function excelTime(iso) {
@@ -112,7 +112,7 @@ function number(value, style = 0) {
 }
 
 function journalRows(entries, settings) {
-  const headers = ["Date", "Jour", "Type", "Heure arrivée", "Heure départ", "Pause", "Temps réel", "Bonification", "Temps comptabilisé", "Temps prévu", "Écart", "Règle", "Commentaire"];
+  const headers = ["Date", "Jour", "Type", "Heure arrivée", "Heure départ", "Pause", "Temps travaillé", "Récupération utilisée", "Bonification", "Temps comptabilisé", "Temps prévu", "Écart", "Règle", "Commentaire"];
   const formatter = new Intl.DateTimeFormat("fr-FR", { weekday: "long" });
   return [
     headers,
@@ -121,13 +121,14 @@ function journalRows(entries, settings) {
       const rule = typeRule(settings, entry.type);
       const ruleText = `x${rule.coefficient}${rule.fixedMinutes ? ` ${formatDuration(rule.fixedMinutes, { signed: true })}` : ""}${calculated.calendarMultiplier !== 1 ? ` · date x${calculated.calendarMultiplier}` : ""}`;
       return [
-        number(excelDate1904(entry.date), 2),
+        number(excelDate(entry.date), 2),
         formatter.format(dateFromKey(entry.date)),
         TYPE_LABELS[entry.type] || "Autre",
         entry.arrival ? number(excelTime(entry.arrival), 3) : null,
         entry.departure ? number(excelTime(entry.departure), 3) : null,
         number(Number(entry.pauseMinutes || 0) / 1440, 4),
         number(calculated.workedMinutes / 1440, 4),
+        number(calculated.recoveryUsedMinutes / 1440, 4),
         number(calculated.bonusMinutes / 1440, 5),
         number(calculated.countedMinutes / 1440, 5),
         number(calculated.plannedMinutes / 1440, 4),
@@ -141,19 +142,21 @@ function journalRows(entries, settings) {
 
 function monthlyRows(entries, settings, year) {
   const monthNames = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
-  const totals = Array.from({ length: 12 }, () => ({ worked: 0, counted: 0, planned: 0 }));
+  const totals = Array.from({ length: 12 }, () => ({ worked: 0, recovery: 0, counted: 0, planned: 0 }));
   for (const entry of entries) {
     const values = computeEntry(entry, entry.departure ? new Date(entry.departure) : new Date(), settings);
     const month = Number(entry.date.slice(5, 7)) - 1;
     totals[month].worked += values.workedMinutes;
+    totals[month].recovery += values.recoveryUsedMinutes;
     totals[month].counted += values.countedMinutes;
     totals[month].planned += values.plannedMinutes;
   }
   return [
-    ["Mois", "Temps réel", "Temps comptabilisé", "Temps prévu", "Écart comptabilisé / prévu"],
+    ["Mois", "Temps réel", "Récupération utilisée", "Temps comptabilisé", "Temps prévu", "Écart comptabilisé / prévu"],
     ...totals.map((total, month) => [
       `${monthNames[month]} ${year}`,
       number(total.worked / 1440, 4),
+      number(total.recovery / 1440, 4),
       number(total.counted / 1440, 5),
       number(total.planned / 1440, 4),
       number((total.counted - total.planned) / 1440, 5),
@@ -166,11 +169,12 @@ function annualRows(entries, settings, year) {
     (result, entry) => {
       const values = computeEntry(entry, entry.departure ? new Date(entry.departure) : new Date(), settings);
       result.worked += values.workedMinutes;
+      result.recovery += values.recoveryUsedMinutes;
       result.counted += values.countedMinutes;
       result.planned += values.plannedMinutes;
       return result;
     },
-    { worked: 0, counted: 0, planned: 0 },
+    { worked: 0, recovery: 0, counted: 0, planned: 0 },
   );
   const target = Number(settings.annualTargetMinutes || 0);
   return [
@@ -178,6 +182,7 @@ function annualRows(entries, settings, year) {
     ["Année", year],
     ["Objectif annuel", number(target / 1440, 4)],
     ["Heures réalisées", number(totals.worked / 1440, 4)],
+    ["Récupération utilisée", number(totals.recovery / 1440, 4)],
     ["Heures comptabilisées", number(totals.counted / 1440, 5)],
     ["Heures prévues", number(totals.planned / 1440, 4)],
     ["Écart comptabilisé / prévu", number((totals.counted - totals.planned) / 1440, 5)],
@@ -211,8 +216,8 @@ export async function buildExcelBlob(allEntries, settings, year = new Date().get
   if (!globalThis.JSZip) throw new Error("Le composant Excel n’est pas disponible.");
   const entries = allEntries.filter((entry) => Number(entry.date.slice(0, 4)) === year);
   const sheets = [
-    { name: "JOURNAL", rows: journalRows(entries, settings), widths: [13, 14, 22, 15, 15, 12, 16, 16, 20, 16, 16, 24, 42] },
-    { name: "MENSUEL", rows: monthlyRows(entries, settings, year), widths: [20, 18, 22, 18, 28] },
+    { name: "JOURNAL", rows: journalRows(entries, settings), widths: [13, 14, 22, 15, 15, 12, 18, 21, 16, 20, 16, 16, 24, 42] },
+    { name: "MENSUEL", rows: monthlyRows(entries, settings, year), widths: [20, 18, 22, 22, 18, 28] },
     { name: "ANNUEL", rows: annualRows(entries, settings, year), widths: [30, 22] },
     { name: "PARAMÈTRES", rows: settingsRows(settings), widths: [38, 28] },
   ];
@@ -236,7 +241,7 @@ export async function buildExcelBlob(allEntries, settings, year = new Date().get
 </Relationships>`);
   zip.file("xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <workbookPr date1904="1"/>
+  <workbookPr date1904="0"/>
   <bookViews><workbookView xWindow="0" yWindow="0" windowWidth="24000" windowHeight="12000"/></bookViews>
   <sheets>${sheets.map((sheet, index) => `<sheet name="${xml(sheet.name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join("")}</sheets>
   <calcPr calcId="191029" fullCalcOnLoad="1"/>

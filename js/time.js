@@ -68,6 +68,7 @@ export function computeEntry(entry, now = new Date(), settings = {}) {
   const end = entry.departure || (entry.arrival ? now.toISOString() : null);
   const elapsed = minutesBetween(entry.arrival, end);
   const workedMinutes = elapsed === null ? 0 : Math.max(0, elapsed - Number(entry.pauseMinutes || 0));
+  const recoveryUsedMinutes = Math.max(0, Number(entry.recoveryUsedMinutes || 0));
   const plannedMinutes = Math.max(0, Number(entry.plannedMinutes || 0));
   const rule = typeRule(settings, entry.type);
   const standardDayMinutes = Math.max(0, Number(settings.standardDayMinutes || 540));
@@ -80,16 +81,27 @@ export function computeEntry(entry, now = new Date(), settings = {}) {
   else if (workedMinutes > 0 && isSunday(entry.date)) calendarMultiplier = sundayMultiplier;
   else if (workedMinutes > 0 && entry.isHoliday) calendarMultiplier = holidayMultiplier;
   const weightedMinutes = Math.round(coefficientBase * rule.coefficient * calendarMultiplier);
-  const countedMinutes = unconfirmedForecast ? 0 : weightedMinutes + Math.round(rule.fixedMinutes);
+  const countedBeforeRecoveryMinutes = unconfirmedForecast ? 0 : weightedMinutes + Math.round(rule.fixedMinutes);
+  const countedMinutes = unconfirmedForecast ? 0 : countedBeforeRecoveryMinutes + recoveryUsedMinutes;
+  const baseGapMinutes = unconfirmedForecast ? 0 : countedBeforeRecoveryMinutes - plannedMinutes;
+  const recoverableEarnedMinutes = unconfirmedForecast ? 0 : Math.max(0, baseGapMinutes);
+  const recoverableDeltaMinutes = unconfirmedForecast
+    ? 0
+    : (rule.coefficient < 0 ? baseGapMinutes : recoverableEarnedMinutes) - recoveryUsedMinutes;
   return {
     workedMinutes,
+    recoveryUsedMinutes,
+    countedBeforeRecoveryMinutes,
     countedMinutes,
     plannedMinutes,
     gapMinutes: unconfirmedForecast ? 0 : countedMinutes - plannedMinutes,
+    baseGapMinutes,
+    recoverableEarnedMinutes,
+    recoverableDeltaMinutes,
     ruleCoefficient: rule.coefficient,
     fixedMinutes: rule.fixedMinutes,
     calendarMultiplier,
-    bonusMinutes: countedMinutes - workedMinutes,
+    bonusMinutes: countedBeforeRecoveryMinutes - workedMinutes,
     active: Boolean(entry.arrival && !entry.departure),
   };
 }
@@ -198,12 +210,14 @@ export function summarize(entries, now = new Date(), settings = {}) {
     (total, entry) => {
       const values = computeEntry(entry, now, settings);
       total.workedMinutes += values.workedMinutes;
+      total.recoveryUsedMinutes += values.recoveryUsedMinutes;
       total.countedMinutes += values.countedMinutes;
       total.plannedMinutes += values.plannedMinutes;
       total.gapMinutes += values.gapMinutes;
+      total.recoverableDeltaMinutes += values.recoverableDeltaMinutes;
       return total;
     },
-    { workedMinutes: 0, countedMinutes: 0, plannedMinutes: 0, gapMinutes: 0 },
+    { workedMinutes: 0, recoveryUsedMinutes: 0, countedMinutes: 0, plannedMinutes: 0, gapMinutes: 0, recoverableDeltaMinutes: 0 },
   );
 }
 

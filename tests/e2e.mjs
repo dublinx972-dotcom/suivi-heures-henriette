@@ -67,7 +67,7 @@ try {
     const pad = (value) => String(value).padStart(2, "0");
     const key = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
     const arrival = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 7, 0).toISOString();
-    const departure = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 16, 45).toISOString();
+    const departure = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 17, 0).toISOString();
     const database = await new Promise((resolve, reject) => {
       const request = indexedDB.open("suivi-heures-personnel");
       request.onsuccess = () => resolve(request.result);
@@ -91,13 +91,14 @@ try {
     });
   });
   await page.reload({ waitUntil: "networkidle" });
-  assert.match(await page.locator("#global-balance-today").innerText(), /\+00 h 45/);
+  assert.match(await page.locator("#global-balance-today").innerText(), /\+01 h 00/);
   await page.locator("#global-balance-today").getByRole("button", { name: "Voir le détail" }).click();
-  assert.match(await page.locator("#balance-dialog").innerText(), /Solde cumulé \+00 h 45/i);
-  assert.match(await page.locator("#balance-detail-list").innerText(), /Compté 09 h 45 − prévu 09 h 00/);
+  assert.match(await page.locator("#balance-dialog").innerText(), /Solde cumulé \+01 h 00/i);
+  assert.match(await page.locator("#balance-detail-list").innerText(), /compté 10 h 00 − prévu 09 h 00/i);
   await page.getByRole("button", { name: "Fermer" }).click();
   await page.screenshot({ path: join(output, "mobile-arrival.png"), fullPage: true });
   await page.getByRole("button", { name: "ARRIVÉE" }).click();
+  await page.getByRole("button", { name: "DÉPART" }).waitFor();
   await page.reload({ waitUntil: "networkidle" });
   await page.getByRole("button", { name: "DÉPART" }).waitFor();
   assert.match(await page.locator("#today-content").innerText(), /EN COURS/);
@@ -108,19 +109,51 @@ try {
     return `${current.getFullYear()}-${pad(current.getMonth() + 1)}-${pad(current.getDate())}`;
   });
   await page.getByRole("button", { name: "Corriger la journée" }).click();
-  await page.locator('input[name="arrival"]').fill(`${date}T07:00`);
+  await page.locator('input[name="arrival"]').fill(`${date}T08:00`);
   await page.locator('input[name="departure"]').fill(`${date}T16:00`);
   await page.locator('input[name="pause"]').fill("00:00");
   await page.locator('input[name="planned"]').fill("09:00");
   await page.getByRole("button", { name: "Enregistrer" }).click();
-  await page.getByText("09 h 00").first().waitFor();
+  await page.getByText("08 h 00").first().waitFor();
   await page.locator("#toast").waitFor({ state: "hidden" });
+
+  await page.getByRole("button", { name: /POSER DE LA RÉCUP/ }).click();
+  await page.getByRole("button", { name: "2 h", exact: true }).click();
+  assert.match(await page.locator("#recovery-warning").innerText(), /Solde insuffisant/);
+  assert.equal(await page.locator("#validate-recovery").isDisabled(), true);
+  await page.getByRole("button", { name: "1 h", exact: true }).click();
+  await page.screenshot({ path: join(output, "mobile-recovery.png"), fullPage: true });
+  await page.getByRole("button", { name: "Valider", exact: true }).click();
+  await page.getByRole("button", { name: /MODIFIER LA RÉCUP/ }).waitFor();
+  assert.match(await page.locator("#today-content").innerText(), /Récup posée\s+01 h 00/);
+  assert.match(await page.locator("#today-content").innerText(), /Comptabilisé\s+09 h 00/);
+  assert.match(await page.locator("#today-content").innerText(), /Écart\s+00 h 00/);
+  assert.match(await page.locator("#global-balance-today").innerText(), /00 h 00/);
+
+  await page.getByRole("button", { name: /MODIFIER LA RÉCUP/ }).click();
+  await page.getByRole("button", { name: "Personnalisé", exact: true }).click();
+  await page.locator('input[name="customRecovery"]').fill("00:30");
+  await page.getByRole("button", { name: "Valider", exact: true }).click();
+  await page.getByText("00 h 30").first().waitFor();
+  assert.match(await page.locator("#today-content").innerText(), /Récup posée\s+00 h 30/);
+  assert.match(await page.locator("#today-content").innerText(), /Comptabilisé\s+08 h 30/);
+  assert.match(await page.locator("#global-balance-today").innerText(), /\+00 h 30/);
+
+  await page.getByRole("button", { name: /MODIFIER LA RÉCUP/ }).click();
+  await page.getByRole("button", { name: /Retirer la récup/ }).click();
+  await page.getByRole("button", { name: /POSER DE LA RÉCUP/ }).waitFor();
+  assert.match(await page.locator("#global-balance-today").innerText(), /\+01 h 00/);
+  await page.getByRole("button", { name: /POSER DE LA RÉCUP/ }).click();
+  await page.getByRole("button", { name: "1 h", exact: true }).click();
+  await page.getByRole("button", { name: "Valider", exact: true }).click();
+  await page.getByRole("button", { name: /MODIFIER LA RÉCUP/ }).waitFor();
   await page.screenshot({ path: join(output, "mobile-today.png"), fullPage: true });
 
   await page.getByRole("button", { name: /Calendrier/ }).click();
   await page.screenshot({ path: join(output, "mobile-calendar.png"), fullPage: true });
   await page.getByRole("button", { name: /Bilan/ }).click();
-  assert.match(await page.locator("#global-balance-summary").innerText(), /\+\d{2} h 45/);
+  assert.match(await page.locator("#global-balance-summary").innerText(), /00 h 00/);
+  assert.match(await page.locator("#summary-content").innerText(), /Récup utilisée\s+01 h 00/);
   await page.screenshot({ path: join(output, "mobile-summary.png"), fullPage: true });
   await page.locator(".annual-panel").scrollIntoViewIfNeeded();
   await page.screenshot({ path: join(output, "mobile-annual.png") });
@@ -151,6 +184,8 @@ try {
   assert.match(journalXml, /<c r="A2" s="2"><v>/, "La date du journal doit être une valeur Excel");
   assert.match(journalXml, /<c r="D\d+" s="3"><v>/, "L’arrivée doit être une valeur horaire Excel");
   assert.match(journalXml, /<c r="G\d+" s="4"><v>/, "Le temps réel doit être une durée Excel");
+  assert.match(journalXml, /<c r="H\d+" s="4"><v>/, "La récupération utilisée doit être une durée Excel");
+  assert.match(journalXml, /Récupération utilisée/, "Le journal doit séparer la récupération utilisée");
   assert.match(journalXml, /Temps comptabilisé/, "Le journal doit distinguer le temps comptabilisé");
 
   const backupDownload = page.waitForEvent("download");
@@ -161,6 +196,7 @@ try {
   const backupJson = JSON.parse(await readFile(backupPath, "utf8"));
   assert.equal(backupJson.entries.length, 365);
   assert.ok(backupJson.settings.typeRules.work);
+  assert.equal(backupJson.entries.find((entry) => entry.date === date).recoveryUsedMinutes, 60);
 
   await page.getByRole("button", { name: /Remettre à zéro/ }).click();
   await page.locator("#backup-file").setInputFiles(backupPath);
@@ -182,10 +218,12 @@ try {
     calendrierPrevisionnel2026: true,
     poidsTypesConfigurables: true,
     reportMensuelDuSolde: true,
+    recuperationRapide: true,
+    recuperationModifiableSansDoubleDeduction: true,
     exportExcel: true,
     sauvegardeRestauree: true,
     horsConnexion: true,
-    captures: ["mobile-arrival.png", "mobile-today.png", "mobile-calendar.png", "mobile-summary.png", "mobile-annual.png", "mobile-settings.png", "desktop-summary.png"],
+    captures: ["mobile-arrival.png", "mobile-recovery.png", "mobile-today.png", "mobile-calendar.png", "mobile-summary.png", "mobile-annual.png", "mobile-settings.png", "desktop-summary.png"],
   }, null, 2));
 } finally {
   await browser.close();

@@ -12,7 +12,8 @@ const output = join(dirname(workbookPath), "xlsx-previews");
 await fs.mkdir(output, { recursive: true });
 
 const overview = await workbook.inspect({ kind: "sheet", include: "id,name", maxChars: 6000 });
-const journal = await workbook.inspect({ kind: "table", range: "JOURNAL!A1:J3", include: "values,formulas", tableMaxRows: 3, tableMaxCols: 10, maxChars: 10000 });
+const journal = await workbook.inspect({ kind: "table", range: "JOURNAL!A1:N3", include: "values,formulas", tableMaxRows: 3, tableMaxCols: 14, maxChars: 12000 });
+const recoveryRow = await workbook.inspect({ kind: "table", range: "JOURNAL!A286:N290", include: "values,formulas", tableMaxRows: 5, tableMaxCols: 14, maxChars: 12000 });
 const errors = await workbook.inspect({
   kind: "match",
   searchTerm: "#REF!|#DIV/0!|#VALUE!|#NAME\\?|#N/A|#NUM!|#NULL!|#SPILL!|#CALC!",
@@ -20,15 +21,18 @@ const errors = await workbook.inspect({
   summary: "final formula error scan",
 });
 
-const renderRanges = { JOURNAL: "A1:J3", MENSUEL: "A1:D13", ANNUEL: "A1:B8", PARAMÈTRES: "A1:B8" };
+const renderRanges = { JOURNAL: "A1:N3", MENSUEL: "A1:F13", ANNUEL: "A1:B10", PARAMÈTRES: "A1:B8" };
 for (const [sheetName, range] of Object.entries(renderRanges)) {
   const image = await workbook.render({ sheetName, range, scale: 1.5, format: "png" });
   await fs.writeFile(join(output, `${sheetName.toLowerCase()}.png`), new Uint8Array(await image.arrayBuffer()));
 }
+const recoveryImage = await workbook.render({ sheetName: "JOURNAL", range: "A286:N290", scale: 1.5, format: "png" });
+await fs.writeFile(join(output, "journal-recovery.png"), new Uint8Array(await recoveryImage.arrayBuffer()));
 
 console.log(JSON.stringify({
   file: basename(workbookPath),
   overview: overview.ndjson,
   journal: journal.ndjson,
+  recoveryRow: recoveryRow.ndjson,
   errors: errors.ndjson,
 }, null, 2));

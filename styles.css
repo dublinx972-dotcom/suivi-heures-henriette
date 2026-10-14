@@ -20,6 +20,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 html { min-height: 100%; background: var(--background); }
 
@@ -186,6 +187,7 @@ main { width: min(100%, 940px); margin: 0 auto; }
 .icon-command svg { width: 19px; height: 19px; }
 .text-command { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 44px; padding: 9px; border: 0; color: var(--blue); background: transparent; font-size: 14px; font-weight: 750; cursor: pointer; }
 .text-command svg { width: 17px; }
+.recovery-command { margin-top: 7px; color: var(--teal-dark); }
 
 .calendar-toolbar { display: grid; grid-template-columns: 42px 1fr 42px; align-items: center; gap: 10px; margin-bottom: 10px; }
 .month-command { min-height: 42px; border: 0; color: var(--navy); background: transparent; font-size: 19px; font-weight: 800; text-transform: capitalize; cursor: pointer; }
@@ -217,7 +219,9 @@ main { width: min(100%, 940px); margin: 0 auto; }
 .day-row { display: grid; grid-template-columns: 76px minmax(82px, 1fr) 82px 72px 20px; align-items: center; gap: 8px; width: 100%; min-height: 62px; padding: 10px 12px; border: 0; border-bottom: 1px solid var(--line); background: var(--white); text-align: left; cursor: pointer; }
 .day-row:last-child { border-bottom: 0; }
 .day-date { color: var(--navy); font-size: 13px; font-weight: 800; text-transform: capitalize; }
-.day-times { min-width: 0; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.day-times { display: grid; gap: 3px; min-width: 0; color: var(--muted); font-size: 12px; overflow: hidden; }
+.day-times b { overflow: hidden; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.day-times small { overflow: hidden; color: var(--teal-dark); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .day-total, .day-gap { font-size: 13px; font-weight: 750; font-variant-numeric: tabular-nums; }
 .day-row > svg { width: 17px; color: #98a2b3; }
 .empty-state { display: grid; justify-items: center; gap: 8px; padding: 34px 20px; text-align: center; }
@@ -234,9 +238,10 @@ main { width: min(100%, 940px); margin: 0 auto; }
 .pointed-balance { justify-items: end; }
 .pointed-balance small { font-size: 9px; font-weight: 750; text-transform: uppercase; }
 .pointed-balance strong { font-size: 17px; }
-.summary-values { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.summary-values { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .summary-values > div { display: grid; gap: 5px; min-width: 0; padding: 14px 10px; }
-.summary-values > div + div { border-left: 1px solid var(--line); }
+.summary-values > div:nth-child(2n) { border-left: 1px solid var(--line); }
+.summary-values > div:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }
 .summary-values span, .annual-values span { color: var(--muted); font-size: 11px; font-weight: 650; }
 .summary-values strong { color: var(--navy); font-size: 18px; white-space: nowrap; }
 
@@ -279,7 +284,7 @@ textarea { resize: vertical; }
 .form-row input, .form-row select { text-align: right; }
 .primary-command, .secondary-command, .delete-command { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 10px 16px; border-radius: 7px; font-weight: 800; cursor: pointer; }
 .primary-command { border: 1px solid var(--teal); color: var(--white); background: var(--teal); }
-.primary-command:disabled { opacity: 0.55; cursor: progress; }
+.primary-command:disabled { opacity: 0.55; cursor: not-allowed; }
 .secondary-command { border: 1px solid var(--line); color: var(--navy); background: var(--white); }
 .delete-command { border: 0; color: var(--red); background: transparent; }
 .primary-command svg, .secondary-command svg, .delete-command svg { width: 18px; }
@@ -330,13 +335,32 @@ textarea { resize: vertical; }
 .day-rule-preview > div:first-child { display: grid; gap: 3px; }
 .day-rule-preview > div:first-child span { color: var(--teal-dark); font-size: 10px; font-weight: 850; }
 .day-rule-preview > div:first-child strong { color: var(--navy); font-size: 13px; line-height: 1.4; }
-.rule-results { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.rule-results { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .rule-results span { display: grid; gap: 3px; color: var(--muted); font-size: 10px; }
 .rule-results b { color: var(--navy); font-size: 13px; font-variant-numeric: tabular-nums; }
+.recovery-inline-command { display: grid; grid-template-columns: 24px minmax(0, 1fr) 18px; align-items: center; gap: 10px; width: 100%; min-height: 58px; padding: 9px 12px; border: 1px solid #c8dfdc; border-radius: 7px; color: var(--teal-dark); background: #f2f8f7; text-align: left; cursor: pointer; }
+.recovery-inline-command > svg { width: 19px; }
+.recovery-inline-command > svg:last-child { width: 16px; color: #71918e; }
+.recovery-inline-command span { display: grid; gap: 3px; }
+.recovery-inline-command strong { font-size: 12px; }
+.recovery-inline-command small { color: var(--muted); font-size: 11px; }
 .dialog-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 18px calc(14px + env(safe-area-inset-bottom)); background: var(--soft); border-top: 1px solid var(--line); }
 .stacked-actions { display: grid; grid-template-columns: 1fr; }
 .stacked-actions button { width: 100%; }
 .confirm-dialog .dialog-body p { margin: 0; color: var(--muted); line-height: 1.5; }
+.recovery-dialog { width: min(calc(100% - 24px), 480px); }
+.recovery-dialog-body { gap: 16px; }
+.recovery-context { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.recovery-context > div { display: grid; gap: 5px; min-width: 0; padding: 13px; }
+.recovery-context > div + div { border-left: 1px solid var(--line); }
+.recovery-context span { color: var(--muted); font-size: 10px; font-weight: 750; }
+.recovery-context strong { color: var(--navy); font-size: 18px; font-variant-numeric: tabular-nums; }
+.recovery-presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.recovery-presets button { min-height: 48px; padding: 8px; border: 1px solid #b8c4ce; border-radius: 7px; color: var(--navy); background: var(--white); font-weight: 800; cursor: pointer; }
+.recovery-presets button.selected { border-color: var(--teal); color: var(--white); background: var(--teal); }
+.custom-recovery-row input { font-size: 20px; font-weight: 750; text-align: center; font-variant-numeric: tabular-nums; }
+.recovery-warning { margin: 0; padding: 10px 12px; color: #7a4400; background: #fff3df; border: 1px solid #f0d4a6; border-radius: 7px; font-size: 12px; line-height: 1.4; }
+.recovery-dialog #validate-recovery { margin-left: auto; }
 .balance-dialog-body { gap: 10px; padding: 0; }
 .balance-dialog-body > p { margin: 0; padding: 16px 18px; color: var(--muted); background: var(--soft); border-bottom: 1px solid var(--line); font-size: 12px; line-height: 1.45; }
 .balance-detail-list { display: grid; }
@@ -363,9 +387,14 @@ textarea { resize: vertical; }
   .view { padding: 34px 28px 46px; }
   .view-heading h1 { font-size: 34px; }
   .today-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .today-metrics.completed-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .metric { border-bottom: 0; }
   .metric:nth-child(2n) { border-right: 1px solid var(--line); }
   .metric:last-child { border-right: 0; }
+  .completed-metrics .metric:nth-child(3) { border-right: 0; }
+  .completed-metrics .metric:nth-child(-n + 3) { border-bottom: 1px solid var(--line); }
+  .completed-metrics .metric:nth-child(4) { border-right: 1px solid var(--line); }
+  .recovery-presets { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .day-row { grid-template-columns: 110px minmax(120px, 1fr) 110px 100px 20px; }
   .settings-form, .view[data-view="settings"] > .settings-section, .version { max-width: 680px; margin-right: auto; margin-left: auto; }

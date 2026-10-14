@@ -22,7 +22,7 @@ import {
   theoreticalDeparture,
   toLocalDateTimeInput,
   typeRule,
-} from "./time.js?v=1.2.1";
+} from "./time.js?v=1.3.0";
 import {
   DEFAULT_SETTINGS,
   clearAllData,
@@ -34,16 +34,19 @@ import {
   putEntries,
   replaceData,
   saveSettings,
-} from "./db.js?v=1.2.1";
-import { buildExcelBlob, downloadBlob, workbookSummary } from "./xlsx.js?v=1.2.1";
+} from "./db.js?v=1.3.0";
+import { buildExcelBlob, downloadBlob, workbookSummary } from "./xlsx.js?v=1.3.0";
 
-const VERSION = "1.2.1";
+const VERSION = "1.3.0";
 const state = {
   entries: [],
   settings: { ...DEFAULT_SETTINGS },
   view: "today",
   calendarDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1, 12),
   editingDate: null,
+  recoveryDate: null,
+  selectedRecoveryMinutes: 0,
+  customRecovery: false,
   pendingImport: null,
   deferredInstall: null,
   forecast: null,
@@ -114,6 +117,7 @@ async function ensureBundledForecast() {
           arrival: null,
           departure: null,
           pauseMinutes: 0,
+          recoveryUsedMinutes: 0,
           plannedMinutes: Number(day.plannedMinutes || 0),
           comment: day.label || "",
           calendarLabel: day.label || "",
@@ -185,7 +189,7 @@ function balanceEntries(now = new Date()) {
 }
 
 function cumulativeBalance(now = new Date()) {
-  return summarize(balanceEntries(now), now, state.settings).gapMinutes;
+  return summarize(balanceEntries(now), now, state.settings).recoverableDeltaMinutes;
 }
 
 function cumulativeBalanceBanner(minutes, id) {
@@ -201,17 +205,24 @@ function showBalanceDetails() {
   const now = new Date();
   const rows = balanceEntries(now)
     .map((entry) => ({ entry, values: computeEntry(entry, now, state.settings) }))
-    .filter(({ values }) => values.gapMinutes !== 0)
+    .filter(({ values }) => values.recoverableDeltaMinutes !== 0)
     .sort((a, b) => b.entry.date.localeCompare(a.entry.date));
-  const total = rows.reduce((sum, row) => sum + row.values.gapMinutes, 0);
+  const total = rows.reduce((sum, row) => sum + row.values.recoverableDeltaMinutes, 0);
   const totalNode = $("#balance-dialog-total");
   totalNode.textContent = `Solde cumulé ${formatDuration(total, { signed: true })}`;
   $("#balance-detail-list").innerHTML = rows.length
-    ? rows.map(({ entry, values }) => `<button class="balance-detail-row" type="button" data-action="open-balance-day" data-date="${entry.date}">
-        <span><strong>${formatShortDate(entry.date)} · ${escapeHtml(TYPE_LABELS[entry.type] || "Autre")}</strong><small>Compté ${formatDuration(values.countedMinutes)} − prévu ${formatDuration(values.plannedMinutes)}</small></span>
-        <b class="${gapClass(values.gapMinutes)}">${formatDuration(values.gapMinutes, { signed: true })}</b>
+    ? rows.map(({ entry, values }) => {
+      const detail = values.recoveryUsedMinutes
+        ? `Récup utilisée ${formatDuration(values.recoveryUsedMinutes)}`
+        : values.recoverableDeltaMinutes > 0
+          ? `Heures acquises · compté ${formatDuration(values.countedBeforeRecoveryMinutes)} − prévu ${formatDuration(values.plannedMinutes)}`
+          : `Récupération / ajustement ${formatDuration(Math.abs(values.recoverableDeltaMinutes))}`;
+      return `<button class="balance-detail-row" type="button" data-action="open-balance-day" data-date="${entry.date}">
+        <span><strong>${formatShortDate(entry.date)} · ${escapeHtml(TYPE_LABELS[entry.type] || "Autre")}</strong><small>${detail}</small></span>
+        <b class="${gapClass(values.recoverableDeltaMinutes)}">${formatDuration(values.recoverableDeltaMinutes, { signed: true })}</b>
         <i data-lucide="chevron-right"></i>
-      </button>`).join("")
+      </button>`;
+    }).join("")
     : `<div class="empty-balance-detail"><i data-lucide="circle-check"></i><strong>Aucun écart enregistré</strong><span>Les journées équilibrées et le planning non confirmé ne modifient pas le solde.</span></div>`;
   refreshIcons();
   $("#balance-dialog").showModal();
@@ -250,6 +261,7 @@ function renderToday() {
       <button class="text-command" type="button" data-action="open-day" data-date="${active.date}"><i data-lucide="pencil"></i>Corriger la journée</button>`;
   } else if (today?.arrival && today?.departure) {
     const values = computeEntry(today, new Date(today.departure), state.settings);
+    const recoveryActionLabel = values.recoveryUsedMinutes ? "MODIFIER LA RÉCUP" : "− POSER DE LA RÉCUP";
     host.innerHTML = `
       ${balanceBanner}
       <section class="today-hero completed-state">
@@ -258,13 +270,16 @@ function renderToday() {
         <h2>${formatDuration(values.workedMinutes)}</h2>
         <p>travaillées aujourd’hui</p>
       </section>
-      <section class="today-metrics" aria-label="Résumé de la journée">
+      <section class="today-metrics completed-metrics" aria-label="Résumé de la journée">
         ${metric("Arrivée", formatClock(today.arrival, state.settings.hour12))}
         ${metric("Départ", formatClock(today.departure, state.settings.hour12))}
+        ${metric("Travaillé", formatDuration(values.workedMinutes))}
+        ${metric("Récup posée", formatDuration(values.recoveryUsedMinutes))}
         ${metric("Comptabilisé", formatDuration(values.countedMinutes))}
         ${metric("Écart", formatDuration(values.gapMinutes, { signed: true }), gapClass(values.gapMinutes))}
       </section>
       <section class="plan-line"><div><span>Temps prévu</span><strong>${formatDuration(values.plannedMinutes)}</strong></div><div class="rule-inline">${escapeHtml(ruleSummary(today))}</div></section>
+      <button class="text-command recovery-command" type="button" data-action="open-recovery" data-date="${todayKey}"><i data-lucide="circle-minus"></i>${recoveryActionLabel}</button>
       <button class="text-command" type="button" data-action="open-day" data-date="${todayKey}"><i data-lucide="pencil"></i>Corriger la journée</button>`;
   } else {
     const planned = today?.plannedMinutes || 0;
@@ -332,13 +347,16 @@ function renderCalendar() {
       const times = entry.arrival
         ? `${formatClock(entry.arrival, state.settings.hour12)} → ${formatClock(entry.departure, state.settings.hour12)}`
         : entry.calendarLabel || TYPE_LABELS[entry.type] || "Journée planifiée";
-      const total = entry.arrival ? formatDuration(values.workedMinutes) : `Prévu ${formatDuration(values.plannedMinutes)}`;
+      const workedDetail = values.recoveryUsedMinutes
+        ? `${formatDuration(values.workedMinutes)} travaillées + ${formatDuration(values.recoveryUsedMinutes)} récup`
+        : entry.arrival ? `${formatDuration(values.workedMinutes)} travaillées` : "";
+      const total = entry.arrival ? formatDuration(values.countedMinutes) : `Prévu ${formatDuration(values.plannedMinutes)}`;
       const balance = entry.arrival || values.countedMinutes
         ? formatDuration(values.gapMinutes, { signed: true })
         : TYPE_LABELS[entry.type] || "Prévu";
       return `<button class="day-row" type="button" data-action="open-day" data-date="${entry.date}">
         <span class="day-date">${formatShortDate(entry.date)}</span>
-        <span class="day-times">${escapeHtml(times)}</span>
+        <span class="day-times"><b>${escapeHtml(times)}</b>${workedDetail ? `<small>${workedDetail}</small>` : ""}</span>
         <span class="day-total">${total}</span>
         <span class="day-gap ${entry.arrival || values.countedMinutes ? gapClass(values.gapMinutes) : ""}">${balance}</span>
         <i data-lucide="chevron-right"></i>
@@ -351,7 +369,7 @@ function renderCalendar() {
 function summaryBlock(title, summary, subtitle = "") {
   return `<article class="summary-block">
     <header><div><span>${title}</span>${subtitle ? `<small>${subtitle}</small>` : ""}</div><div class="pointed-balance"><small>Solde pointé</small><strong class="${gapClass(summary.gapMinutes)}">${formatDuration(summary.gapMinutes, { signed: true })}</strong></div></header>
-    <div class="summary-values"><div><span>Réel</span><strong>${formatDuration(summary.workedMinutes)}</strong></div><div><span>Compté</span><strong>${formatDuration(summary.countedMinutes)}</strong></div><div><span>Prévu</span><strong>${formatDuration(summary.plannedMinutes)}</strong></div></div>
+    <div class="summary-values"><div><span>Réel</span><strong>${formatDuration(summary.workedMinutes)}</strong></div><div><span>Récup utilisée</span><strong>${formatDuration(summary.recoveryUsedMinutes)}</strong></div><div><span>Compté</span><strong>${formatDuration(summary.countedMinutes)}</strong></div><div><span>Prévu</span><strong>${formatDuration(summary.plannedMinutes)}</strong></div></div>
   </article>`;
 }
 
@@ -387,6 +405,7 @@ function renderSummary() {
         <div><span>Objectif annuel</span><strong>${formatDuration(target)}</strong></div>
         <div><span>Reste à effectuer</span><strong>${formatDuration(remaining)}</strong></div>
         <div><span>Réel à date</span><strong>${formatDuration(yearSummary.workedMinutes)}</strong></div>
+        <div><span>Récup utilisée</span><strong>${formatDuration(yearSummary.recoveryUsedMinutes)}</strong></div>
         <div><span>Prévu à date</span><strong>${formatDuration(yearSummary.plannedMinutes)}</strong></div>
         <div><span>Solde des jours pointés</span><strong class="${gapClass(yearSummary.gapMinutes)}">${formatDuration(yearSummary.gapMinutes, { signed: true })}</strong></div>
         <div><span>Prévision annuelle</span><strong>${formatDuration(yearForecast.plannedMinutes)}</strong></div>
@@ -453,6 +472,7 @@ async function clockIn() {
     arrival: now,
     departure: null,
     pauseMinutes: current?.pauseMinutes ?? (state.settings.pauseMode === "fixed" ? state.settings.fixedPauseMinutes : 0),
+    recoveryUsedMinutes: Number(current?.recoveryUsedMinutes || 0),
     plannedMinutes: current ? Number(current.plannedMinutes || 0) : Number(state.settings.standardDayMinutes),
     comment: current?.comment || "",
     calendarLabel: current?.calendarLabel || "",
@@ -493,10 +513,21 @@ function openDayEditor(date) {
   form.elements.planned.value = durationInput(current?.plannedMinutes || 0);
   form.elements.comment.value = current?.comment || "";
   $("#delete-day").hidden = !current;
+  syncDayRecoveryAction(current);
   $("#day-dialog-title").textContent = current ? "Modifier la journée" : "Renseigner la journée";
   $("#day-dialog-date").textContent = new Intl.DateTimeFormat("fr-FR", { dateStyle: "full" }).format(dateFromKey(date));
   renderDayRulePreview();
   $("#day-dialog").showModal();
+}
+
+function syncDayRecoveryAction(entry) {
+  const button = $("#day-recovery-action");
+  const recovery = Math.max(0, Number(entry?.recoveryUsedMinutes || 0));
+  button.hidden = !(entry?.arrival && entry?.departure);
+  $("#day-recovery-status").textContent = recovery
+    ? `${formatDuration(recovery)} utilisée · toucher pour modifier`
+    : "Aucune récupération utilisée";
+  $("#day-recovery-action strong").textContent = recovery ? "MODIFIER LA RÉCUP" : "− POSER DE LA RÉCUP";
 }
 
 function renderDayRulePreview() {
@@ -511,13 +542,14 @@ function renderDayRulePreview() {
     arrival: fromLocalDateTimeInput(form.elements.arrival.value),
     departure: fromLocalDateTimeInput(form.elements.departure.value),
     pauseMinutes,
+    recoveryUsedMinutes: Number(current?.recoveryUsedMinutes || 0),
     plannedMinutes,
     isHoliday: Boolean(current?.isHoliday),
   };
   const values = computeEntry(entry, new Date(), state.settings);
   $("#day-rule-preview").innerHTML = `
     <div><span>RÈGLE APPLIQUÉE</span><strong>${escapeHtml(ruleSummary(entry))}</strong></div>
-    <div class="rule-results"><span>Réel <b>${formatDuration(values.workedMinutes)}</b></span><span>Comptabilisé <b>${formatDuration(values.countedMinutes)}</b></span><span>Écart <b class="${gapClass(values.gapMinutes)}">${formatDuration(values.gapMinutes, { signed: true })}</b></span></div>`;
+    <div class="rule-results"><span>Réel <b>${formatDuration(values.workedMinutes)}</b></span><span>Récup <b>${formatDuration(values.recoveryUsedMinutes)}</b></span><span>Comptabilisé <b>${formatDuration(values.countedMinutes)}</b></span><span>Écart <b class="${gapClass(values.gapMinutes)}">${formatDuration(values.gapMinutes, { signed: true })}</b></span></div>`;
 }
 
 async function saveDay(event) {
@@ -546,22 +578,145 @@ async function saveDay(event) {
   }
   const existing = entryForDate(state.editingDate);
   const now = new Date().toISOString();
-  await putEntry({
+  const baseEntry = {
     date: state.editingDate,
     type: form.elements.type.value,
     arrival,
     departure,
     pauseMinutes,
+    recoveryUsedMinutes: 0,
     plannedMinutes,
     comment: form.elements.comment.value.trim(),
     calendarLabel: existing?.calendarLabel || "",
     isHoliday: Boolean(existing?.isHoliday),
     createdAt: existing?.createdAt || now,
     updatedAt: now,
-  });
+  };
+  const baseValues = computeEntry(baseEntry, departure ? new Date(departure) : new Date(), state.settings);
+  const previousRecovery = Math.max(0, Number(existing?.recoveryUsedMinutes || 0));
+  const maximumUsefulRecovery = arrival && departure ? Math.max(0, baseValues.plannedMinutes - baseValues.countedMinutes) : 0;
+  const recoveryUsedMinutes = Math.min(previousRecovery, maximumUsefulRecovery);
+  await putEntry({ ...baseEntry, recoveryUsedMinutes });
   $("#day-dialog").close();
   await reload();
-  announce("Journée enregistrée.", "success");
+  announce(
+    recoveryUsedMinutes < previousRecovery
+      ? `Journée enregistrée. Récup ajustée à ${formatDuration(recoveryUsedMinutes)}.`
+      : "Journée enregistrée.",
+    "success",
+  );
+}
+
+function recoveryLimits(entry, now = new Date()) {
+  const currentRecovery = Math.max(0, Number(entry?.recoveryUsedMinutes || 0));
+  const referenceNow = entry?.departure ? new Date(entry.departure) : now;
+  const baseValues = computeEntry({ ...entry, recoveryUsedMinutes: 0 }, referenceNow, state.settings);
+  const neededMinutes = Math.max(0, baseValues.plannedMinutes - baseValues.countedMinutes);
+  const availableAfterCurrent = cumulativeBalance(now);
+  const availableBeforeCurrent = Math.max(0, availableAfterCurrent + currentRecovery);
+  return {
+    currentRecovery,
+    neededMinutes,
+    availableAfterCurrent,
+    availableBeforeCurrent,
+    maximumMinutes: Math.min(neededMinutes, availableBeforeCurrent),
+  };
+}
+
+function recoverySelectionWarning() {
+  const entry = entryForDate(state.recoveryDate);
+  if (!entry) return "Journée introuvable.";
+  const limits = recoveryLimits(entry);
+  const minutes = Number(state.selectedRecoveryMinutes || 0);
+  if (minutes <= 0) return "Choisis une durée de récupération.";
+  if (minutes > limits.availableBeforeCurrent) {
+    return `Solde insuffisant : ${formatDuration(limits.availableBeforeCurrent)} disponible.`;
+  }
+  if (minutes > limits.neededMinutes) {
+    return `Cette journée nécessite au maximum ${formatDuration(limits.neededMinutes)} de récupération.`;
+  }
+  return "";
+}
+
+function renderRecoveryDialog() {
+  const entry = entryForDate(state.recoveryDate);
+  if (!entry) return;
+  const limits = recoveryLimits(entry);
+  $("#recovery-dialog-date").textContent = new Intl.DateTimeFormat("fr-FR", { dateStyle: "full" }).format(dateFromKey(entry.date));
+  $("#recovery-available").textContent = formatDuration(limits.availableBeforeCurrent);
+  $("#recovery-needed").textContent = formatDuration(limits.neededMinutes);
+  $$("[data-action='select-recovery']", $("#recovery-presets")).forEach((button) => {
+    button.classList.toggle("selected", Number(button.dataset.minutes) === Number(state.selectedRecoveryMinutes) && !state.customRecovery);
+  });
+  $("[data-action='select-custom-recovery']", $("#recovery-presets")).classList.toggle("selected", state.customRecovery);
+  $("#custom-recovery-row").hidden = !state.customRecovery;
+  if (state.customRecovery) {
+    $("#recovery-form").elements.customRecovery.value = state.selectedRecoveryMinutes
+      ? durationInput(state.selectedRecoveryMinutes)
+      : "";
+  }
+  $("#remove-recovery").hidden = limits.currentRecovery <= 0;
+  const warning = recoverySelectionWarning();
+  $("#recovery-warning").textContent = warning;
+  $("#recovery-warning").hidden = !warning;
+  $("#validate-recovery").disabled = Boolean(warning);
+}
+
+function openRecoveryEditor(date) {
+  const entry = entryForDate(date);
+  if (!(entry?.arrival && entry?.departure)) {
+    announce("Enregistre d’abord l’arrivée et le départ réels de la journée.", "warning");
+    return;
+  }
+  state.recoveryDate = date;
+  state.selectedRecoveryMinutes = Math.max(0, Number(entry.recoveryUsedMinutes || 0));
+  state.customRecovery = state.selectedRecoveryMinutes > 0 && ![30, 60, 120].includes(state.selectedRecoveryMinutes);
+  renderRecoveryDialog();
+  refreshIcons();
+  $("#recovery-dialog").showModal();
+}
+
+function selectRecovery(minutes, custom = false) {
+  state.selectedRecoveryMinutes = Math.max(0, Number(minutes || 0));
+  state.customRecovery = custom;
+  renderRecoveryDialog();
+  if (custom) $("#recovery-form").elements.customRecovery.focus();
+}
+
+async function applyRecovery(minutes) {
+  const entry = entryForDate(state.recoveryDate);
+  if (!entry) return;
+  const limits = recoveryLimits(entry);
+  if (minutes < 0 || minutes > limits.availableBeforeCurrent || minutes > limits.neededMinutes) {
+    state.selectedRecoveryMinutes = minutes;
+    renderRecoveryDialog();
+    return;
+  }
+  const balanceBefore = cumulativeBalance();
+  await putEntry({ ...entry, recoveryUsedMinutes: minutes, updatedAt: new Date().toISOString() });
+  $("#recovery-dialog").close();
+  await reload();
+  const balanceAfter = cumulativeBalance();
+  if ($("#day-dialog").open && state.editingDate === entry.date) {
+    syncDayRecoveryAction(entryForDate(entry.date));
+    renderDayRulePreview();
+  }
+  announce(
+    minutes
+      ? `Récup ${formatDuration(minutes)} enregistrée. Solde ${formatDuration(balanceBefore)} → ${formatDuration(balanceAfter)}.`
+      : `Récup retirée. Solde ${formatDuration(balanceBefore)} → ${formatDuration(balanceAfter)}.`,
+    "success",
+  );
+}
+
+async function saveRecovery(event) {
+  event.preventDefault();
+  const warning = recoverySelectionWarning();
+  if (warning) {
+    renderRecoveryDialog();
+    return;
+  }
+  await applyRecovery(Number(state.selectedRecoveryMinutes || 0));
 }
 
 async function removeDay() {
@@ -630,7 +785,7 @@ function validateBackup(payload) {
     if (dates.has(entry.date)) throw new Error(`La journée ${entry.date} apparaît deux fois.`);
     dates.add(entry.date);
     if (!DAY_TYPES.some(([value]) => value === entry.type)) throw new Error(`Type de journée invalide pour ${entry.date}.`);
-    if ([entry.pauseMinutes, entry.plannedMinutes].some((value) => !Number.isFinite(Number(value)) || Number(value) < 0)) throw new Error(`Durée invalide pour ${entry.date}.`);
+    if ([entry.pauseMinutes, entry.plannedMinutes, entry.recoveryUsedMinutes ?? 0].some((value) => !Number.isFinite(Number(value)) || Number(value) < 0)) throw new Error(`Durée invalide pour ${entry.date}.`);
     if (entry.arrival && Number.isNaN(new Date(entry.arrival).getTime())) throw new Error(`Arrivée invalide pour ${entry.date}.`);
     if (entry.departure && Number.isNaN(new Date(entry.departure).getTime())) throw new Error(`Départ invalide pour ${entry.date}.`);
     if (entry.departure && !entry.arrival) throw new Error(`Départ sans arrivée pour ${entry.date}.`);
@@ -700,6 +855,10 @@ function bindEvents() {
     if (action === "clock-in") await clockIn();
     if (action === "clock-out") await clockOut();
     if (action === "open-day") openDayEditor(target.dataset.date);
+    if (action === "open-recovery") openRecoveryEditor(target.dataset.date);
+    if (action === "open-recovery-editor") openRecoveryEditor(state.editingDate);
+    if (action === "select-recovery") selectRecovery(Number(target.dataset.minutes));
+    if (action === "select-custom-recovery") selectRecovery(state.selectedRecoveryMinutes, true);
     if (action === "show-balance-details") showBalanceDetails();
     if (action === "open-balance-day") {
       $("#balance-dialog").close();
@@ -718,6 +877,16 @@ function bindEvents() {
   $("#day-form").addEventListener("change", renderDayRulePreview);
   $("#delete-day").addEventListener("click", removeDay);
   $("#close-day-dialog").addEventListener("click", () => $("#day-dialog").close());
+  $("#recovery-form").addEventListener("submit", saveRecovery);
+  $("#recovery-form").elements.customRecovery.addEventListener("input", (event) => {
+    state.selectedRecoveryMinutes = parseDuration(event.target.value) ?? 0;
+    const warning = recoverySelectionWarning();
+    $("#recovery-warning").textContent = warning;
+    $("#recovery-warning").hidden = !warning;
+    $("#validate-recovery").disabled = Boolean(warning);
+  });
+  $("#remove-recovery").addEventListener("click", () => applyRecovery(0));
+  $("#close-recovery-dialog").addEventListener("click", () => $("#recovery-dialog").close());
   $("#close-balance-dialog").addEventListener("click", () => $("#balance-dialog").close());
   $("#settings-form").addEventListener("submit", savePreferences);
   $("#settings-form").elements.pauseMode.addEventListener("change", (event) => {
